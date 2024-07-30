@@ -1,0 +1,34 @@
+name: gs2mesh
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - cudatoolkit=11.3
+  - plyfile
+  - python=3.7.13
+  - pip=22.3.1
+  - pytorch=1.12.1
+  - torchaudio=0.12.1
+  - torchvision=0.13.1
+  - tqdm
+  - colmap
+  - pip:
+    - third_party/gaussian-splatting/submodules/diff-gaussian-rasterization
+    - third_party/gaussian-splatting/submodules/simple-knn
+    - segment_anything
+    - scipy
+    - tensorboard
+    - opt_einsum
+    - imageio
+    - opencv-python
+    - scikit-image
+    - einops
+    - matplotlib
+    - plotly
+    - open3d
+    - jupyterlab
+    - k3d
+    - trimesh
+    - timm==0.5.4 #SELECTIVE IGEV
+    - ipympl

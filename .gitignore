@@ -154,6 +154,19 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# custom
+/evaluation/*/eval_output/*
+/splatting_output/*
+/output/*
+/third_party/DLNR/pretrained/*
+/third_party/SAM/*
+data/*
+!data/custom/
+data/custom/*
+!data/custom/sculpture/
+data/custom/sculpture/*
+!data/custom/sculpture/sculpture.MP4
+
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
