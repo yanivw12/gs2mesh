@@ -30,5 +30,4 @@ dependencies:
     - jupyterlab
     - k3d
     - trimesh
-    - timm==0.5.4 #SELECTIVE IGEV
     - ipympl
