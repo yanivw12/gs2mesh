@@ -29,6 +29,7 @@ class ArgParser:
         self.default_values = {
             'colmap_name':{'custom':'sculpture', 'DTU':'scan24', 'TNT':'Ignatius', 'MobileBrick':'aston', 'MipNerf360':'garden'},
             'dataset_name':{'custom':'custom', 'DTU':'DTU', 'TNT':'TNT', 'MobileBrick':'MobileBrick', 'MipNerf360':'MipNerf360'},
+            'downsample':{'custom':1, 'DTU':1, 'TNT':1, 'MobileBrick':1, 'MipNerf360':3},
             'renderer_baseline_percentage':{'custom':7.0, 'DTU':7.0, 'TNT':7.0, 'MobileBrick':14.0, 'MipNerf360':7.0},
             'TSDF_scale':{'custom':1.0, 'DTU':1.0, 'TNT':1.0, 'MobileBrick':0.1, 'MipNerf360':1.0},
             'TSDF_use_mask':{'custom':False, 'DTU':True, 'TNT':False, 'MobileBrick':True, 'MipNerf360':False},
@@ -44,6 +45,9 @@ class ArgParser:
         self.parser.add_argument('--dataset_name', type=str, default=self.default_value('dataset_name'), help='Name of the dataset. Options: custom, DTU, TNT, MobileBrick, MipNerf360')
         self.parser.add_argument('--experiment_folder_name', type=str, default=None, help='Name of the experiment folder')
 
+        # Preprocessing params
+        self.parser.add_argument('--downsample', type=int, default=self.default_value('downsample'), help='Downsampling factor')
+        
         # GS params
         self.parser.add_argument('--GS_iterations', type=int, default=30000, help='Number of Gaussian Splatting iterations')
         self.parser.add_argument('--GS_save_test_iterations', type=int, nargs='+', default=[7000, 30000], help='Gaussian Splatting test iterations to save')
@@ -93,7 +97,7 @@ class ArgParser:
         
         # Add params based on dataset
         if self.dataset == 'custom':
-            self.parser.add_argument('--video_extension', type=str, default='MP4', help='Video file extension.')
+            self.parser.add_argument('--video_extension', type=str, default='mp4', help='Video file extension.')
             self.parser.add_argument('--video_interval', type=int, default=10, help='Extract every n-th frame - aim for 3fps.')
         if self.dataset == 'DTU':
             self.parser.add_argument('--scans', type=int, nargs='+', default=[24, 37, 40, 55, 63, 65, 69, 83, 97, 105, 106, 110, 114, 118, 122], help='Scan numbers')

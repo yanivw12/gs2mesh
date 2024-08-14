@@ -6,6 +6,7 @@ import numpy as np
 import os
 import cv2
 import math
+from scipy.spatial.transform import Rotation as R
 
 # =============================================================================
 #  Small functions for correcting numerical errors
@@ -133,6 +134,30 @@ def rotm2eul(R):
     out = np.degrees([x, y, z])
     return fix_zero(out)
 
+def matrix_to_quaternion(rotation_matrix):
+    """
+    Convert a rotation matrix to a quaternion.
+
+    Parameters:
+    rotation_matrix (np.ndarray): Rotation matrix.
+
+    Returns:
+    np.ndarray: Quaternion.
+    """
+    return R.from_matrix(rotation_matrix).as_quat()
+
+def quaternion_to_matrix(quaternion):
+    """
+    Convert a quaternion to a rotation matrix.
+
+    Parameters:
+    quaternion (np.ndarray): Quaternion.
+
+    Returns:
+    np.ndarray: Rotation matrix.
+    """
+    return R.from_quat(quaternion).as_matrix()
+    
 def depth_image_to_point_cloud(depth, K):
     """
     Project 2D points into 3D space using the intrinsic matrix K.
@@ -196,7 +221,7 @@ def calculate_right_camera_pose(R_left, T_left, baseline):
     rotated_baseline = R_mat @ baseline_vector
     T_left_tensor = np.array(T_left, dtype=np.float32)
     T_right = T_left_tensor + rotated_baseline
-    return tuple(R_left), tuple(fix_zero(T_right).tolist())
+    return tuple(R_left.tolist()), tuple(fix_zero(T_right).tolist())
 
 def get_shading(img, shading_eps):
     """

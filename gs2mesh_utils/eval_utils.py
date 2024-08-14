@@ -18,6 +18,8 @@ csv_headers = {
 #  Functions
 # =============================================================================
 
+float2str = lambda x: str(x).replace('.', '_')
+
 def create_strings(args):
     """
     Creates and returns a dictionary of formatted strings used in the rendering and evaluation process.
@@ -29,9 +31,9 @@ def create_strings(args):
     dict: A dictionary containing the formatted strings.
     """
     splatting_string = f"{args.dataset_name}{'_nw' if args.GS_white_background == False else ''}_iterations{args.GS_iterations}"
-    baseline_string = f"{args.renderer_baseline_absolute}a" if args.renderer_baseline_absolute is not None else f"{str(args.renderer_baseline_percentage).replace('.', '_')}p"
+    baseline_string = f"{args.renderer_baseline_absolute}a" if args.renderer_baseline_absolute is not None else f"{float2str(args.renderer_baseline_percentage)}p"
     dataset_string = f"{splatting_string}_{args.stereo_model}_baseline{baseline_string}"
-    TSDF_string = f"{args.colmap_name}_{dataset_string}_mask{'1' if args.TSDF_use_mask else '0'}_occ{'1' if args.TSDF_use_occlusion_mask else '0'}_scale{str(float(args.TSDF_scale)).replace('.', '_')}_voxel{str(args.TSDF_voxel)}_512_trunc{args.TSDF_min_depth_baselines}_{args.TSDF_max_depth_baselines}"
+    TSDF_string = f"{args.colmap_name}_{dataset_string}_mask{'1' if args.TSDF_use_mask else '0'}_occ{'1' if args.TSDF_use_occlusion_mask else '0'}_scale{float2str(float(args.TSDF_scale))}_voxel{str(args.TSDF_voxel)}_512_trunc{args.TSDF_min_depth_baselines}_{args.TSDF_max_depth_baselines}"
     experiment_name_string = args.experiment_folder_name if args.experiment_folder_name is not None else dataset_string
     output_dir_root_string = os.path.join(base_dir, 'output', experiment_name_string if experiment_name_string is not None else dataset_string, args.renderer_folder_name if args.renderer_folder_name is not None else args.colmap_name)
     ply_path_string = os.path.join(output_dir_root_string, f'{TSDF_string}_cleaned_mesh.ply')

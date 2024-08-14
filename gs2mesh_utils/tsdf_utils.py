@@ -110,11 +110,9 @@ class TSDF:
                 axes[1].axis('off')
                 plt.show()
                 print(f"minimal depth: {np.asarray(rgbd_image.depth)[np.asarray(rgbd_image.depth) != 0].min()}, maximal depth: {np.asarray(rgbd_image.depth).max()}")
-
+            
             intrinsics = o3d.camera.PinholeCameraIntrinsic(left_camera['width'], left_camera['height'], left_camera['fx'], left_camera['fy'], left_camera['cx'], left_camera['cy'])
-
             volume.integrate(rgbd_image, intrinsics, np.linalg.inv(extrinsic_matrix))
-
         self.mesh = volume.extract_triangle_mesh()
         self.mesh.scale(scale, (0, 0, 0))
         self.mesh.compute_vertex_normals()

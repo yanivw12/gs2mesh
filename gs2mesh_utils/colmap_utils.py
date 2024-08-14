@@ -8,12 +8,13 @@ import os
 from tqdm import tqdm
 import cv2
 import shutil
-from scipy.spatial.transform import Rotation as R
 from collections import OrderedDict
 import plotly.graph_objects as go
 import trimesh
+from PIL import Image
 
 from gs2mesh_utils.io_utils import read_ply
+from gs2mesh_utils.transformation_utils import matrix_to_quaternion, quaternion_to_matrix
 import gs2mesh_utils.third_party.visualization.visualize as visualize
 import gs2mesh_utils.third_party.visualization.camera_utils as camera_utils
 from gs2mesh_utils.third_party.colmap_runner.utils.read_write_model import read_images_text, read_points3D_text
@@ -40,30 +41,6 @@ def poses_from_file(extrinsic_file):
     poses = torch.cat([Rs, tvecs[..., None]], dim=-1)
     return poses
 
-def matrix_to_quaternion(rotation_matrix):
-    """
-    Convert a rotation matrix to a quaternion.
-
-    Parameters:
-    rotation_matrix (np.ndarray): Rotation matrix.
-
-    Returns:
-    np.ndarray: Quaternion.
-    """
-    return R.from_matrix(rotation_matrix).as_quat()
-
-def quaternion_to_matrix(quaternion):
-    """
-    Convert a quaternion to a rotation matrix.
-
-    Parameters:
-    quaternion (np.ndarray): Quaternion.
-
-    Returns:
-    np.ndarray: Rotation matrix.
-    """
-    return R.from_quat(quaternion).as_matrix()
-
 def extract_frames(video_path, output_folder, interval=20, verbose=True):
     """
     Extract frames from a video at a specified sampling interval.
@@ -77,13 +54,14 @@ def extract_frames(video_path, output_folder, interval=20, verbose=True):
     Returns:
     None
     """
-    if not os.path.exists(output_folder):
+    if os.path.exists(output_folder):
         if verbose:
-            print(f"Creating output folder {output_folder}")
-        os.makedirs(output_folder)
+            print(f"Output folder {output_folder} exists. Deleting and recreating.")
+        shutil.rmtree(output_folder)
     else:
         if verbose:
-            print(f"Output folder {output_folder} exists")
+            print(f"Creating output folder {output_folder}")
+    os.makedirs(output_folder)
 
     vidcap = cv2.VideoCapture(video_path)
     if not vidcap.isOpened():
@@ -96,6 +74,7 @@ def extract_frames(video_path, output_folder, interval=20, verbose=True):
 
     if verbose:
         print(f"Video resolution: {frame_width}x{frame_height}, FPS: {fps}")
+        print(f"Sample every {interval} frames, target FPS: {fps/interval}")
         
     success, image = vidcap.read()
     count = 0
@@ -109,6 +88,34 @@ def extract_frames(video_path, output_folder, interval=20, verbose=True):
         count += 1
     if verbose:
         print("Done extracting frames")
+
+def create_downsampled_colmap_dir(colmap_dir, downsample_factor):
+    """
+    Create a new COLMAP folder with downsampled images.
+
+    Parameters:
+    colmap_dir (str): Directory containing COLMAP sparse model.
+    downsample_factor (float): The downsampling factor.
+
+    Returns:
+    str: the path to the downsampled COLMAP folder.
+    """
+    original_images_dir = os.path.join(colmap_dir, "images")
+    downsampled_dir = f"{os.path.normpath(colmap_dir)}_downsample{downsample_factor}"
+    downsampled_images_dir = os.path.join(downsampled_dir, "images")
+    if os.path.exists(downsampled_images_dir) and len(os.listdir(original_images_dir)) == len(os.listdir(downsampled_images_dir)):
+        pass
+    else:
+        os.makedirs(downsampled_images_dir, exist_ok=True)
+        for filename in tqdm(os.listdir(original_images_dir)):
+            if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif')):
+                original_image_path = os.path.join(original_images_dir, filename)
+                downsampled_image_path = os.path.join(downsampled_images_dir, filename)
+                with Image.open(original_image_path) as image:
+                    downsampled_dims = (image.width // downsample_factor, image.height // downsample_factor)
+                    downsampled_image = image.resize(downsampled_dims)
+                    downsampled_image.save(downsampled_image_path)      
+    return downsampled_dir
 
 def visualize_colmap_poses(colmap_dir, depth_scale=1, subsample=100, visualize_points=True, GT_path=None):
     """
@@ -175,7 +182,24 @@ def convert_to_txt(colmap_dir):
     """
     os.system(f"colmap model_converter --input_path {os.path.join(colmap_dir, 'sparse', '0')} --output_path {os.path.join(colmap_dir, 'sparse', '0')} --output_type TXT")
     
-    
+def move_files_to_sparse_zero(dir_path):
+    """
+    Move files from colmap_dir/sparse to colmap_dir/sparse/0
+
+    Parameters:
+    dir_path (str): Root directory containing the sparse folder.
+
+    Returns:
+    None
+    """
+    sparse_dir = os.path.join(dir_path, 'sparse')
+    sparse_zero_dir = os.path.join(sparse_dir, '0')
+    os.makedirs(sparse_zero_dir, exist_ok=True)
+    for file_name in os.listdir(sparse_dir):
+        file_path = os.path.join(sparse_dir, file_name)
+        if os.path.isfile(file_path):
+            shutil.move(file_path, os.path.join(sparse_zero_dir, file_name))
+
 def run_colmap(colmap_dir, use_gpu=True):
     """
     Run COLMAP on a directory of images with unknown poses to create a sparse model.
@@ -187,15 +211,27 @@ def run_colmap(colmap_dir, use_gpu=True):
     Returns:
     None
     """
-    os.system(f"rm -rf {os.path.join(colmap_dir, 'images', '.ipynb_checkpoints')}")
-    os.system(f"colmap feature_extractor --database_path {os.path.join(colmap_dir, 'database.db')} --image_path {os.path.join(colmap_dir, 'images')} --ImageReader.single_camera 1 --ImageReader.camera_model PINHOLE --SiftExtraction.use_gpu {'1' if use_gpu else '0'}")
-    os.system(f"colmap exhaustive_matcher --database_path {os.path.join(colmap_dir, 'database.db')} --SiftMatching.use_gpu {'1' if use_gpu else '0'}")
-    sparse = os.path.join(colmap_dir, 'sparse')
-    if not os.path.exists(sparse):
-        os.makedirs(sparse)
-    os.system(f"colmap mapper --database_path {os.path.join(colmap_dir, 'database.db')} --image_path {os.path.join(colmap_dir, 'images')} --output_path {os.path.join(colmap_dir, 'sparse')} --Mapper.num_threads 16 --Mapper.init_min_tri_angle 4 --Mapper.multiple_models 0 --Mapper.extract_colors 0")
-    convert_to_txt(colmap_dir)
 
+    images_dir = os.path.join(colmap_dir, 'images')
+    images_raw_dir = os.path.join(colmap_dir, 'images_raw')
+    database_dir = os.path.join(colmap_dir, 'database.db')
+    sparse_dir = os.path.join(colmap_dir, 'sparse')
+    sparse_zero_dir = os.path.join(sparse_dir, '0')
+
+    os.rename(images_dir, images_raw_dir)
+    os.system(f"rm -rf {os.path.join(images_raw_dir, '.ipynb_checkpoints')}")
+    os.system(f"colmap feature_extractor --database_path {database_dir} --image_path {images_raw_dir} --ImageReader.single_camera 1 --ImageReader.camera_model RADIAL --SiftExtraction.use_gpu {'1' if use_gpu else '0'}")
+    os.system(f"colmap exhaustive_matcher --database_path {database_dir} --SiftMatching.use_gpu {'1' if use_gpu else '0'}")
+    if not os.path.exists(sparse_dir):
+        os.makedirs(sparse_dir)
+    os.system(f"colmap mapper --database_path {database_dir} --image_path {images_raw_dir} --output_path {sparse_dir} --Mapper.num_threads 16 --Mapper.init_min_tri_angle 4 --Mapper.multiple_models 0 --Mapper.extract_colors 0")
+    for f in os.listdir(sparse_zero_dir):
+        shutil.move(os.path.join(sparse_zero_dir, f), sparse_dir)
+    os.rmdir(sparse_zero_dir)
+    os.system(f"colmap image_undistorter --image_path {images_raw_dir} --input_path {sparse_dir} --output_path {colmap_dir} --output_type COLMAP")
+    move_files_to_sparse_zero(colmap_dir)
+    convert_to_txt(colmap_dir)
+    
 def run_colmap_known_poses(colmap_dir, use_gpu=True, images_dir_name='images'):
     """
     Run COLMAP on a directory of images with known poses to create a sparse model.
@@ -208,10 +244,14 @@ def run_colmap_known_poses(colmap_dir, use_gpu=True, images_dir_name='images'):
     Returns:
     None
     """
+
+    database_dir = os.path.join(colmap_dir, 'database.db')
+    sparse_zero_dir = os.path.join(colmap_dir, 'sparse', '0')
+    
     os.system(f"rm -rf {os.path.join(colmap_dir, images_dir_name, '.ipynb_checkpoints')}")
-    os.system(f"colmap feature_extractor --database_path {os.path.join(colmap_dir, 'database.db')} --image_path {os.path.join(colmap_dir, images_dir_name)} --SiftExtraction.use_gpu {'1' if use_gpu else '0'} --ImageReader.camera_model PINHOLE")
-    os.system(f"colmap exhaustive_matcher --database_path {os.path.join(colmap_dir, 'database.db')} --SiftMatching.use_gpu {'1' if use_gpu else '0'}")
-    os.system(f"colmap point_triangulator --clear_points 1 --database_path {os.path.join(colmap_dir, 'database.db')} --image_path {os.path.join(colmap_dir, images_dir_name)} --input_path {os.path.join(colmap_dir, 'sparse', '0')} --output_path {os.path.join(colmap_dir, 'sparse', '0')}")
+    os.system(f"colmap feature_extractor --database_path {database_dir} --image_path {os.path.join(colmap_dir, images_dir_name)} --SiftExtraction.use_gpu {'1' if use_gpu else '0'} --ImageReader.camera_model PINHOLE")
+    os.system(f"colmap exhaustive_matcher --database_path {database_dir} --SiftMatching.use_gpu {'1' if use_gpu else '0'}")
+    os.system(f"colmap point_triangulator --clear_points 1 --database_path {database_dir} --image_path {os.path.join(colmap_dir, images_dir_name)} --input_path {sparse_zero_dir} --output_path {sparse_zero_dir}")
     convert_to_txt(colmap_dir)
     
 def create_mobile_brick_colmap_files(orig_dir, colmap_name):

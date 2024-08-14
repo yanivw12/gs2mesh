@@ -1,6 +1,3 @@
-
-
-
 <p align="center">
   <h1 align="center">GS2Mesh: Surface Reconstruction from Gaussian Splatting via Novel Stereo Views</h1>
   <p align="center"> Yaniv Wolf · Amit Bracha · Ron Kimmel</p>
@@ -15,30 +12,75 @@ We introduce a novel pipeline for multi-view 3D reconstruction from uncontrolled
 
 ## Updates
 
+- **2024/08/14:** 
+	- Added support for SAM2! You can now extract meshes of specific objects with ease using the interactive notebook *custom_data.ipynb*.
+	- Changed default CUDA to 11.8 and default python to 3.8 for better compatibility. If you have already installed a previous version of the environment, please remove it using *"conda remove -n gs2mesh --all"* and re-install it using the instructions below.
+	- Improved COLMAP on custom data to fix distortion.
+	- Added support for downsampling - relevant especially for MipNeRF360 dataset.
 - **2024/07/30:** Code is released! Includes preprocessing, reconstruction and evaluation code for DTU, TNT and MobileBrick, as well as code for reconstruction of custom data and MipNerf360.
 
 ## Future Work
 
 - [ ] Add support for additional state-of-the-art GS and Stereo models
-- [ ] Add support for SAM2
+- [x] Add support for SAM2
 - [ ] Release Google Colab demo
 - [x] Release notebook for interactive reconstruction of custom data
 - [x] Release reconstruction/evaluation code for DTU, TNT, MobileBrick, MipNerf360
 
 ## Installation
 
+**Environment**
+
+We tested the environment on Ubuntu 20.04, with Python 3.8.18 and CUDA 11.8, with an Nvidia A40/L40 GPU.
+
 First, clone the repository:
 ```bash
 git clone https://github.com/yanivw12/gs2mesh.git
 ```
-Then, install the environment and activate:
+Then, create the environment, activate it and install dependencies:
 ```bash
-conda env create --file environment.yml
+# create the environment
+conda create --name gs2mesh python=3.8
+# activate the environment
 conda activate gs2mesh
+# install conda dependencies
+conda install pytorch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 pytorch-cuda=11.8 cudatoolkit=11.8 colmap -c pytorch -c nvidia -c conda-forge
+# install additional dependencies
+cd gs2mesh
+pip install -r requirements.txt
 ```
-For the stereo model, download the pre-trained Middlebury and Sceneflow models from [DLNR](https://github.com/David-Zhao-1997/High-frequency-Stereo-Matching-Network), and place them in *gs2mesh/third_party/DLNR/pretrained/*.
 
-For the Segment Anything Model masker, download the pretrained weights from [here](https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth), and place them in *gs2mesh/third_party/SAM/*.
+**DLNR Stereo**
+
+For the stereo model, download the pre-trained Middlebury and Sceneflow models from [DLNR](https://github.com/David-Zhao-1997/High-frequency-Stereo-Matching-Network), and place them in *gs2mesh/third_party/DLNR/pretrained/*:
+```bash
+# create the folder for the pretrained models
+cd third_party/DLNR
+mkdir pretrained
+cd pretrained
+# download Middlebury model
+wget https://github.com/David-Zhao-1997/High-frequency-Stereo-Matching-Network/releases/download/v1.0.0/DLNR_Middlebury.pth
+# download Sceneflow model
+wget https://github.com/David-Zhao-1997/High-frequency-Stereo-Matching-Network/releases/download/v1.0.0/DLNR_SceneFlow.pth
+```
+
+**SAM2**
+
+Notice that in *third_party/segment-anything-2/setup.py*, the line 
+```bash
+python_requires=">=3.10.0",
+```
+has been changed to
+```bash
+python_requires=">=3.8.0",
+```
+in order to adapt to our python version.
+
+Install SAM2 with the commands:
+```bash
+cd third_party/segment-anything-2
+pip install -e .
+```
 
 ## Datasets
 
@@ -188,6 +230,8 @@ python run_mipnerf360.py
 ```
 Results are saved in *gs2mesh/output/MipNerf360_\<params>*.
 
+**Note: Since the original resolution of the MipNeRF360 scenes is very large, we added a downsample argument that can reduce the size of the images before processing.
+
 ## Custom Data
 
 Place your data under *gs2mesh/data/custom/\<data_name>*.
@@ -236,14 +280,16 @@ python run_single.py --colmap_name <data_name> --skip_video_extraction --skip_co
 ```
 Results are saved in *gs2mesh/output/custom_\<params>*.
 
+You can also choose to run the python script *run_single.py*, and then just mask using the relevant parts of the *custom_data.ipynb* notebook
 <details>
 <summary>Parameters</summary>
 
 | Parameter                        | Description                                                                     | Custom       | DTU          | TNT        | MobileBrick  | MipNerf360   |
 |----------------------------------|---------------------------------------------------------------------------------|--------------|--------------|------------|--------------|--------------|
-| `colmap_name`                    | Name of the directory with the COLMAP sparse model                              | sculpture     | scan24       | Ignatius   | aston        | garden       |
+| `colmap_name`                    | Name of the directory with the COLMAP sparse model                              | sculpture     | scan24       | Ignatius   | aston        | counter       |
 | `dataset_name`                   | Name of the dataset. Options: custom, DTU, TNT, MobileBrick, MipNerf360         | custom       | DTU          | TNT        | MobileBrick  | MipNerf360   |
 | `experiment_folder_name`         | Name of the experiment folder                                                   | None         | None         | None       | None         | None         |
+| `downsample`                  | Downsampling factor                                         | 1        | 1        | 1      | 1        | 3   
 | `GS_iterations`                  | Number of Gaussian Splatting iterations                                         | 30000        | 30000        | 30000      | 30000        | 30000        |
 | `GS_save_test_iterations`        | Gaussian Splatting test iterations to save                                      | [7000, 30000]| [7000, 30000]| [7000, 30000]| [7000, 30000]| [7000, 30000]|
 | `GS_white_background`            | Use white background in Gaussian Splatting                                      | False        | False        | False      | False        | False        |
@@ -276,7 +322,7 @@ Results are saved in *gs2mesh/output/custom_\<params>*.
 | `TSDF_min_depth_baselines`       | Minimum depth baselines in TSDF                                                 | 4            | 4            | 2          | 4            | 4            |
 | `TSDF_max_depth_baselines`       | Maximum depth baselines in TSDF                                                 | 20           | 20           | 10         | 20           | 15           |
 | `TSDF_cleaning_threshold`        | Minimal cluster size for clean mesh                                             | 100000       | 100000       | 100000     | 10000        | 100000       |
-| `video_extension`                | Video file extension                                                            | MP4          | ----| ----| ----| ----|
+| `video_extension`                | Video file extension                                                            | mp4          | ----| ----| ----| ----|
 | `video_interval`                 | Extract every n-th frame - aim for 3fps                                         | 10           | ----|----| ----           | ----           |
 | `GS_port`                        | GS port number (relevant if running several instances at the same time)         | 8080         | 8080         | 8080       | 8080         | 8080         |
 | `skip_video_extraction`          | Skip the video extraction stage                                                 | False        | True         | True       | True         | True         |
@@ -290,9 +336,22 @@ Results are saved in *gs2mesh/output/custom_\<params>*.
 </details>
 
 
-## FAQ
+## Common Issues and Tips
 
-This section will be updated with common issues.
+Below are some common issues that have risen by users. Please note that we are constantly improving the code  and adding new features according to user feedback.
+
+- **TSDF integration gets killed/segfault.** This is a bug with Open3D ScalableTSDFVolume. It seems to happen in older versions of Ubuntu such as 18.04, and in newer versions of Python (from our experiments, it happened on Python 3.9 and 3.10, and worked on Python 3.7 and 3.8). To avoid this bug, we recommend using Ubuntu 20.04 with Python 3.8 and Open3D 0.17.0.
+- **Poor mesh quality.** There are many factors that contribute to the quality of the mesh:
+	- The video should cover the reconstructed object completely. We recommend the following practices for a good video:
+		-  filming in landscape. 
+		- If the object is larger, do 2 cycles around the object from 2 different heights and angles, while keeping the object centered and close to the camera. It's ok if the object is not fully in the frame at all times. 
+		- When extracting the video, make sure you maintain around 3 FPS. Lower frame rates can cause COLMAP/GS to fail or produce low quality reconstructions. 
+		- We recommend a resolution of 1920x1080, since larger resolutions can take much longer to process, and lower resolutions reduce the resulting reconstruction's quality.
+	- Naturally, stereo matching models tend to struggle with transparent/textureless surfaces, and the resulting mesh might be noisy/missing in these places. We hope to improve robustness in an upcoming release.
+	- Sometimes, changing the horizontal baseline to a larger baseline for larger objects can improve stereo matching. Make sure to adjust TSDF_min/max_depth_baselines proportionally to how much you changed from the default baseline percentage value (for example, if you double the percentage from 7 to 14, then you need to divide the values of TSDF_min/max_depth_baselines by 2).
+- **Code runs slow.** There are several factors that can slow down the code:
+	- Image size - Images larger than 1920x1080 take much longer to process in the stereo model and TSDF. set the downsample argument to reduce the size of the image at the beginning of the process.
+	- Depth truncation - If the depth truncation for TSDF is too loose, the TSDF will struggle to integrate the background and take much longer. Make sure that you are either truncating depth to ignore the background, or using a segmentation mask on the object you want to reconstruct.
 
 ## Acknowledgements
 
@@ -301,7 +360,7 @@ We thank the following works and repositories:
  - [3DGS](https://github.com/graphdeco-inria/gaussian-splatting) for their pioneering work which made all this possible.
  - [DLNR](https://github.com/David-Zhao-1997/High-frequency-Stereo-Matching-Network) for their stereo model.
  - [Open3D](https://github.com/isl-org/Open3D) for the TSDF fusion algorithm.
- - [SAM](https://github.com/facebookresearch/segment-anything) for the masking model.
+ - [SAM2](https://github.com/facebookresearch/segment-anything-2) for the masking model.
  - [2DGS](https://github.com/hbb1/2d-gaussian-splatting/tree/main) and [GOF](https://github.com/autonomousvision/gaussian-opacity-fields/tree/main) for their preprocessing code for TNT and the preprocessed DTU dataset and evaluation code.
  - [Tanks and Temples](https://github.com/isl-org/TanksAndTemples) and [MobileBrick](https://github.com/ActiveVisionLab/MobileBrick) for their evaluation codes.
 
@@ -316,4 +375,4 @@ If you use GS2Mesh or parts of our code in your work, please cite the following 
 }
 ```
 ## License
-The Gaussian Splatting library is under the [Gaussian-Splatting License](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/LICENSE.md). All original code in this repository is under the [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) license.
+The Gaussian Splatting library is under the [Gaussian-Splatting License](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/LICENSE.md).

@@ -170,7 +170,7 @@ class Renderer:
             camera_index = self.sorted_camera_indices[i]
             R_right, T_right = calculate_right_camera_pose(camera_rotations[camera_index], camera_locations[camera_index], self.baseline)
             self.cameras.append({'left':
-                               {'rot':tuple(camera_rotations[camera_index]),
+                               {'rot':tuple(camera_rotations[camera_index].tolist()),
                                 'pos':tuple(camera_locations[camera_index]), 
                                 'width':camera_params[camera_index]['width'], 
                                 'height':camera_params[camera_index]['height'], 
@@ -297,7 +297,7 @@ class Renderer:
                          need_masks=False, 
                          precomputed_mask=None, 
                          quiet=False, 
-                         resolution=-1, 
+                         resolution=1, 
                          segment=False, 
                          sh_degree=3, 
                          skip_test=False, 

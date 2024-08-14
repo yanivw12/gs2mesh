@@ -9,7 +9,7 @@ from gs2mesh_utils.argument_utils import ArgParser, encode_string
 #  Run
 # =============================================================================
 
-def run_TNT(args):
+def run_mipnerf360(args):
     
     # =============================================================================
     #  Create meshes and evaluate
@@ -33,6 +33,8 @@ def run_TNT(args):
 
 if __name__ == "__main__":
     parser = ArgParser('MipNerf360')
-    args = parser.parse_args()  
+    args = parser.parse_args()
+    if args.downsample > 1:
+        args.skip_colmap = False
     GS_port_orig = args.GS_port
-    run_TNT(args)
+    run_mipnerf360(args)

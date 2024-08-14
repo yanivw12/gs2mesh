@@ -8,7 +8,7 @@ from tqdm import tqdm
 import cv2
 from PIL import Image
 import matplotlib.pyplot as plt
-from segment_anything import sam_model_registry, SamPredictor
+from sam2.sam2_video_predictor import SAM2VideoPredictor
 
 from gs2mesh_utils.transformation_utils import project_depth_image
 
@@ -16,22 +16,43 @@ from gs2mesh_utils.transformation_utils import project_depth_image
 #  Helper functions
 # =============================================================================
 
-def init_predictor(base_dir, device='cuda'):
+def create_temp_jpg_folder(renderer):
+    """
+    Create folder of jpg images containing the rendered left image from each view.
+
+    Parameters:
+    renderer (Renderer): Renderer object class.
+
+    Returns:
+    str: The path to the resulting folder.
+    """
+    dst_dir = os.path.join(renderer.output_dir_root, 'images_jpg')
+    os.makedirs(dst_dir, exist_ok=True)
+    for camera_number in tqdm(range(len(renderer))):
+        new_filename = os.path.join(dst_dir, f"{camera_number:04}.jpg")
+        if os.path.exists(new_filename):
+            continue
+        output_dir = os.path.join(renderer.render_folder_name(camera_number))
+        image = Image.open(os.path.join(output_dir, 'left.png'))
+        image.convert('RGB').save(new_filename)
+    return dst_dir
+        
+def init_predictor(base_dir, renderer, device='cuda'):
     """
     Initialize the SAM predictor.
 
     Parameters:
     base_dir (str): Base directory of the repository.
+    renderer (Renderer): Renderer object class.
     device (str): Device to run the model on.
 
     Returns:
     SamPredictor: Initialized SAM predictor.
     """
-    sam_checkpoint = os.path.join(base_dir, 'third_party', 'SAM', 'sam_vit_h_4b8939.pth')
-    model_type = "vit_h"
-    sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
-    sam.to(device=device)
-    return SamPredictor(sam)
+    predictor = SAM2VideoPredictor.from_pretrained("facebook/sam2-hiera-large")
+    images_dir = create_temp_jpg_folder(renderer)
+    inference_state = predictor.init_state(video_path=images_dir)
+    return predictor, inference_state, images_dir
 
 def farthest_point_sampling(points, num_seeds):
     """
@@ -60,27 +81,42 @@ def farthest_point_sampling(points, num_seeds):
 # =============================================================================
 
 class Masker:
-    def __init__(self, predictor, renderer, stereo, image_number=0):
+    def __init__(self, predictor, inference_state, images_dir, renderer, stereo, image_number=0):
         """
         Initialize the Masker class.
 
         Parameters:
-        predictor (SamPredictor): SAM predictor.
+        predictor (SAM2VideoPredictor): SAM2 predictor.
+        predictor (dict): SAM2 inference state.
+        images_dir (str): directory of jpg images for SAM2.
         renderer (Renderer): Renderer class object.
         stereo (Stereo): Stereo class object.
         image_number (int): Base image number from which to start masking.
         """
-        self.predictor = predictor        
+
+        self.predictor = predictor
+        self.inference_state = inference_state
+        self.predictor.reset_state(self.inference_state)
+        
         self.index = image_number
         self.renderer = renderer
         self.stereo = stereo
-        self.image = np.array(Image.open(os.path.join(renderer.render_folder_name(self.index), 'left.png')))
 
+        image_filenames = [
+            p for p in os.listdir(images_dir)
+            if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG"]
+        ]
+        image_filenames.sort(key=lambda p: int(os.path.splitext(p)[0]))
+        
+        self.image = np.array(Image.open(os.path.join(self.renderer.output_dir_root, 'images_jpg', image_filenames[self.index])))
+        
         self.points = []
         self.bboxes = None
         self.mask = None
 
-        self.fig, self.ax = plt.subplots(figsize=(12, 8))
+        plt.close('all')
+        
+        self.fig, self.ax = plt.subplots(figsize=(9, 6))
         plt.subplots_adjust(bottom=0.2)
         
         self.ax.set_xticks([])
@@ -94,7 +130,13 @@ class Masker:
         self.drag_threshold = 5
         
         self.display_image()
-    
+        
+    # def __del__(self):
+    #     """
+    #     Destructor to ensure the figure is closed when the object is destroyed.
+    #     """
+    #     plt.close('all')
+        
     def display_image(self):
         """
         Display the current image being masked along with points, mask, and bounding box.
@@ -207,14 +249,15 @@ class Masker:
         None
         """
         if len(self.points) > 0 or self.bboxes is not None:
-            self.predictor.set_image(self.image)
-            masks, scores, logits = self.predictor.predict(
-                point_coords=np.array([point[0] for point in self.points]) if len(self.points) > 0 else None,
-                point_labels=np.array([point[1] for point in self.points]) if len(self.points) > 0 else None,
-                box=self.bboxes if self.bboxes is not None else None,
-                multimask_output=True,
+            self.predictor.reset_state(self.inference_state)
+            _, out_obj_ids, out_mask_logits = self.predictor.add_new_points_or_box(
+                inference_state=self.inference_state,
+                frame_idx=self.index,
+                obj_id=1,
+                points=np.array([point[0] for point in self.points]) if len(self.points) > 0 else None,
+                labels=np.array([point[1] for point in self.points]) if len(self.points) > 0 else None,
             )
-            self.mask = masks[2, :, :]
+            self.mask = (out_mask_logits[0] > 0.0).cpu().numpy().squeeze(0)
             output_dir = self.renderer.render_folder_name(self.index)
             np.save(os.path.join(output_dir, 'left_mask.npy'), self.mask)
             plt.imsave(os.path.join(output_dir, 'left_mask.png'), self.mask)
@@ -270,90 +313,17 @@ class Masker:
         x0, y0 = box[0], box[1]
         w, h = box[2] - box[0], box[3] - box[1]
         ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2))
-
-    def segment(self, num_seeds=3, erosion_kernel_size=50, closing_kernel_size=10, resume=0, visualize=False):
+    
+    def segment(self):
         """
-        Perform segmentation on a sequence of images using SAM and depth projections.
-
-        Parameters:
-        num_seeds (int): Number of points to sample from inside/outside the mask using farthest point sampling.
-        erosion_kernel_size (int): Kernel size for erosion filter on mask to avoid leaking from the object to background.
-        closing_kernel_size (int): Kernel size for closing to close any holes that might have formed with the erosion.
-        resume (int): Index of view from which to start masking
-        visualize (bool): Flag to visualize the segmentation process for debugging.
+        Propagate the mask throughout the video using SAM2 and save the resulting masks.
 
         Returns:
         None
         """
-        prev_mask = None
-        mask = None
-        point_coords = None
-        point_labels = None
-        bbox = None
-        prev_image = None
-        for camera_number in tqdm(range(resume, len(self.renderer))):
-            output_dir = os.path.join(self.renderer.render_folder_name(camera_number))
-            image = np.array(Image.open(os.path.join(output_dir, 'left.png'))).astype(np.uint8)
-            depth = np.load(os.path.join(output_dir, f'out_{self.stereo.model_name}', 'depth.npy'))
-
-            if camera_number == resume:
-                mask = np.load(os.path.join(output_dir, 'left_mask.npy'))
-            elif camera_number > resume:
-                mask0 = prev_mask
-                im0 = prev_image
-                im1 = image
-                d0 = np.load(os.path.join(self.renderer.render_folder_name(camera_number-1), f'out_{self.stereo.model_name}', 'depth.npy'))
-                K0 = self.renderer.left_cameras[camera_number-1]['intrinsic']
-                ext0 = self.renderer.left_cameras[camera_number-1]['extrinsic']
-                K1 = self.renderer.left_cameras[camera_number]['intrinsic']
-                ext1 = self.renderer.left_cameras[camera_number]['extrinsic']
-                projected_mask = project_depth_image(d0, mask0, K1, K0, ext1[:3, :3], ext1[:3, 3], ext0[:3, :3], ext0[:3, 3]) > 0.5
-                projected_negative_mask = project_depth_image(d0, ~mask0, K1, K0, ext1[:3, :3], ext1[:3, 3], ext0[:3, :3], ext0[:3, 3]) > 0.5
-                
-                closing_kernel = np.ones((closing_kernel_size, closing_kernel_size), np.uint8)
-                erosion_kernel = np.ones((erosion_kernel_size, erosion_kernel_size), np.uint8)
-                closing = cv2.morphologyEx(projected_mask.astype(np.uint8), cv2.MORPH_CLOSE, closing_kernel)
-                erosion = cv2.erode(closing, erosion_kernel, iterations=1)
-                projected_mask = erosion > 0.5
-
-                closing = cv2.morphologyEx(projected_negative_mask.astype(np.uint8), cv2.MORPH_CLOSE, closing_kernel)
-                erosion = cv2.erode(closing, erosion_kernel, iterations=1)
-                projected_negative_mask = erosion > 0.5
-
-                positive_true_indices = np.argwhere(projected_mask)
-                positive_point_coords = farthest_point_sampling(positive_true_indices.astype(np.float32), num_seeds)
-                positive_point_coords = positive_point_coords[:, [1, 0]]
-                positive_point_labels = np.ones(positive_point_coords.shape[0])
-
-                negative_true_indices = np.argwhere(projected_negative_mask)
-                negative_point_coords = farthest_point_sampling(negative_true_indices.astype(np.float32), num_seeds)
-                negative_point_coords = negative_point_coords[:, [1, 0]]
-                negative_point_labels = np.zeros(negative_point_coords.shape[0])
-
-                point_coords = np.concatenate([positive_point_coords, negative_point_coords], axis=0)
-                point_labels = np.concatenate([positive_point_labels, negative_point_labels], axis=0)
-                
-                self.predictor.set_image(image)
-                masks, scores, logits = self.predictor.predict(
-                    point_coords=point_coords,
-                    point_labels=point_labels,
-                    box=bbox,
-                    multimask_output=True,
-                )
-                mask = masks[2, :, :]
-                    
-            if visualize:
-                plt.figure(figsize=(10, 10))
-                plt.imshow(image)
-                self.show_mask(mask, plt.gca())
-                if point_coords is not None:
-                    self.show_points(point_coords, point_labels, plt.gca())
-                if bbox is not None:
-                    self.show_box(bbox, plt.gca())
-                plt.title(f"Image #{camera_number}", fontsize=18)
-                plt.show() 
-        
+        for out_frame_idx, out_obj_ids, out_mask_logits in self.predictor.propagate_in_video(self.inference_state):
+            mask = (out_mask_logits[0] > 0.0).cpu().numpy().squeeze(0)
+            output_dir = self.renderer.render_folder_name(out_frame_idx)
             np.save(os.path.join(output_dir, 'left_mask.npy'), mask)
             plt.imsave(os.path.join(output_dir, 'left_mask.png'), mask)
-            prev_mask = mask
-            prev_image = image
+        plt.close('all')

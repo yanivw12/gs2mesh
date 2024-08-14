@@ -159,7 +159,7 @@ cython_debug/
 /splatting_output/*
 /output/*
 /third_party/DLNR/pretrained/*
-/third_party/SAM/*
+iframe_figures/*
 data/*
 !data/custom/
 data/custom/*

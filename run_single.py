@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 from gs2mesh_utils.argument_utils import ArgParser
-from gs2mesh_utils.colmap_utils import extract_frames, run_colmap
+from gs2mesh_utils.colmap_utils import extract_frames, create_downsampled_colmap_dir, run_colmap
 from gs2mesh_utils.eval_utils import create_strings
 from gs2mesh_utils.renderer_utils import Renderer
 from gs2mesh_utils.stereo_utils import Stereo
@@ -37,6 +37,16 @@ def run_single(args):
         video_name = f'{args.colmap_name}.{args.video_extension}'
         extract_frames(os.path.join(colmap_dir, video_name), os.path.join(colmap_dir, 'images') , interval=args.video_interval)
 
+    # =============================================================================
+    #  Create downsampled COLMAP directory
+    # =============================================================================
+    
+    if args.downsample > 1.0:
+        create_downsampled_colmap_dir(colmap_dir, args.downsample)
+        args.colmap_name = f"{args.colmap_name}_downsample{args.downsample}"
+        TSDF_voxel_length=args.TSDF_voxel/512
+        colmap_dir = os.path.abspath(os.path.join(base_dir,'data',args.dataset_name,args.colmap_name))
+        strings = create_strings(args)
     # =============================================================================
     #  Run COLMAP with unknown poses
     # =============================================================================
@@ -72,7 +82,7 @@ def run_single(args):
                     splatting_iteration = args.GS_iterations, 
                     white_background = args.GS_white_background, 
                     baseline_absolute = args.renderer_baseline_absolute, 
-                    baseline_percentage = args.renderer_baseline_percentage * (2 if args.dataset_name=="DTU" else 1), 
+                    baseline_percentage = float(args.renderer_baseline_percentage) * (2 if args.dataset_name=="DTU" else 1), 
                     folder_name = args.renderer_folder_name,
                     save_json = args.renderer_save_json,
                     sort_cameras = args.renderer_sort_cameras,
@@ -186,4 +196,5 @@ def run_single(args):
 if __name__ == "__main__":
     parser = ArgParser('custom')
     args = parser.parse_args()
+    print(args)
     run_single(args)
