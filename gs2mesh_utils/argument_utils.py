@@ -74,7 +74,7 @@ class ArgParser:
         self.parser.add_argument('--TSDF_skip', type=str, default=None, help='Choose non-valid images as a list of indices (None to ignore)')
         self.parser.add_argument('--TSDF_use_occlusion_mask', action='store_true', default=True, help='Ignore occluded regions in stereo pairs for better geometric consistency (default True - disable with no-TSDF_use_occlusion_mask)')
         self.parser.add_argument('--no-TSDF_use_occlusion_mask', action='store_false', dest='TSDF_use_occlusion_mask', help="Disable TSDF_use_occlusion_mask")
-        self.parser.add_argument('--TSDF_use_mask', action='store_true', default=self.default_value('TSDF_use_mask'), help='Use object masks (optional) (default True - disable with no-TSDF_use_mask)')
+        self.parser.add_argument('--TSDF_use_mask', action='store_true', default=self.default_value('TSDF_use_mask'), help='Use object masks (optional - disable with no-TSDF_use_mask)')
         self.parser.add_argument('--TSDF_invert_mask', action='store_true', help='Invert the background mask for TSDF')
         self.parser.add_argument('--TSDF_erode_mask', action='store_true', default=True, help='Erode masks in TSDF (default True - disable with no-TSDF_erode_mask)')
         self.parser.add_argument('--no-TSDF_erode_mask', action='store_false', dest='TSDF_erode_mask', help="Disable TSDF_erode_mask")

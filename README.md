@@ -10,8 +10,12 @@
 
 We introduce a novel pipeline for multi-view 3D reconstruction from uncontrolled videos, capable of extracting smooth meshes from noisy Gaussian Splatting clouds. While other geometry extraction methods rely on the location of the Gaussian elements, and attempt to regularize them using geometric constraints, we simply utilize a pre-trained stereo model as a real-world geometric prior, that can extract accurate depths from every view, and fuse them together to create a smooth mesh, without any further optimization needed. Our method achieves state-of-the art reconstruction results, and only requires a short overhead on top of the GS optimization.
 
+### Please read "Common Issues and Tips" before opening a new issue!
+
 ## Updates
 
+- **2024/08/21:**
+    - Small bug fix in renderer initialization.
 - **2024/08/14:** 
 	- Added support for SAM2! You can now extract meshes of specific objects with ease using the interactive notebook *custom_data.ipynb*.
 	- Changed default CUDA to 11.8 and default python to 3.8 for better compatibility. If you have already installed a previous version of the environment, please remove it using *"conda remove -n gs2mesh --all"* and re-install it using the instructions below.
@@ -21,8 +25,9 @@ We introduce a novel pipeline for multi-view 3D reconstruction from uncontrolled
 
 ## Future Work
 
-- [ ] Add support for additional state-of-the-art GS and Stereo models
-- [x] Add support for SAM2
+- [ ] Add support for additional state-of-the-art GS models, and the gsplat framework
+- [ ] Add support for automatic background removal with SAM2 (without the need for an interactive prompt)
+- [x] Add support for SAM2 in the interactive notebook
 - [ ] Release Google Colab demo
 - [x] Release notebook for interactive reconstruction of custom data
 - [x] Release reconstruction/evaluation code for DTU, TNT, MobileBrick, MipNerf360
@@ -310,7 +315,7 @@ You can also choose to run the python script *run_single.py*, and then just mask
 | `TSDF_skip`                      | Choose non-valid images as a list of indices (None to ignore)                   | None         | None         | None       | None         | None         |
 | `TSDF_use_occlusion_mask`        | Ignore occluded regions in stereo pairs for better geometric consistency (default True - disable with no-TSDF_use_occlusion_mask) | True         | True         | True       | True         | True         |
 | `no-TSDF_use_occlusion_mask`     | Disable TSDF_use_occlusion_mask                                                 | False        | False        | False      | False        | False        |
-| `TSDF_use_mask`                  | Use object masks (optional) (default True - disable with no-TSDF_use_mask)      | True         | True         | False      | True         | False        |
+| `TSDF_use_mask`                  | Use object masks (optional) (default True - disable with no-TSDF_use_mask)      | False         | True         | False      | True         | False        |
 | `no-TSDF_use_mask`               | Disable TSDF_use_mask                                                           | ----| False        | ----| False        | ----|
 | `TSDF_invert_mask`               | Invert the background mask for TSDF                                             | False        | False        | False      | False        | False        |
 | `TSDF_erode_mask`                | Erode masks in TSDF (default True - disable with no-TSDF_erode_mask)            | True         | True         | True       | True         | True         |
@@ -341,14 +346,16 @@ You can also choose to run the python script *run_single.py*, and then just mask
 Below are some common issues that have risen by users. Please note that we are constantly improving the code  and adding new features according to user feedback.
 
 - **TSDF integration gets killed/segfault.** This is a bug with Open3D ScalableTSDFVolume. It seems to happen in older versions of Ubuntu such as 18.04, and in newer versions of Python (from our experiments, it happened on Python 3.9 and 3.10, and worked on Python 3.7 and 3.8). To avoid this bug, we recommend using Ubuntu 20.04 with Python 3.8 and Open3D 0.17.0.
+- **Mesh not visible.** The main culprit is usually TSDF_min/max_depth_baselines. It's a parameter that truncates the depth maps before TSDF fusion, expressed as a multiple of the horizontal baseline. The default for a custom 360 scene with 7% baseline is between 4 and 20 baselines. If the object is not visible, it usually means that your baseline is too small. If your scene is not a 360 scene (for example, the DTU dataset), use a larger baseline. To avoid dealing with the min/max depth baselines, you can segment the object using SAM2 in the interactive notebook *custom_data.py*, and set TSDF_max_depth_baselines to a high value that won't affect truncation.
 - **Poor mesh quality.** There are many factors that contribute to the quality of the mesh:
 	- The video should cover the reconstructed object completely. We recommend the following practices for a good video:
 		-  filming in landscape. 
 		- If the object is larger, do 2 cycles around the object from 2 different heights and angles, while keeping the object centered and close to the camera. It's ok if the object is not fully in the frame at all times. 
 		- When extracting the video, make sure you maintain around 3 FPS. Lower frame rates can cause COLMAP/GS to fail or produce low quality reconstructions. 
 		- We recommend a resolution of 1920x1080, since larger resolutions can take much longer to process, and lower resolutions reduce the resulting reconstruction's quality.
-	- Naturally, stereo matching models tend to struggle with transparent/textureless surfaces, and the resulting mesh might be noisy/missing in these places. We hope to improve robustness in an upcoming release.
+	- Naturally, stereo matching models tend to struggle with transparent/textureless surfaces, and the resulting mesh might be noisy/missing in these places. We hope to improve robustness in an upcoming release. Setting the no-stereo_warm flag appears to help in this case, since it doesn't propagate errors between depth maps.
 	- Sometimes, changing the horizontal baseline to a larger baseline for larger objects can improve stereo matching. Make sure to adjust TSDF_min/max_depth_baselines proportionally to how much you changed from the default baseline percentage value (for example, if you double the percentage from 7 to 14, then you need to divide the values of TSDF_min/max_depth_baselines by 2).
+	- With custom datasets which come pre-computed poses (other than the ones officially supported), the TSDF_scale parameter might need to be adjusted (usually changed from 1 to 0.1), otherwise the resolution of the resulting mesh will be very low due to inconsistency with the scale in which the TSDF algorithm expects the data.
 - **Code runs slow.** There are several factors that can slow down the code:
 	- Image size - Images larger than 1920x1080 take much longer to process in the stereo model and TSDF. set the downsample argument to reduce the size of the image at the beginning of the process.
 	- Depth truncation - If the depth truncation for TSDF is too loose, the TSDF will struggle to integrate the background and take much longer. Make sure that you are either truncating depth to ignore the background, or using a segmentation mask on the object you want to reconstruct.

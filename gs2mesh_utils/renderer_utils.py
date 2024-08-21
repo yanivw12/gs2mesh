@@ -144,12 +144,13 @@ class Renderer:
         camera_locations = [pose[:3,3].tolist() for pose in poses_inv]
         
         camera_params = read_cameras_text(os.path.join(self.colmap_dir,'sparse','0','cameras.txt'))
+        camera_params_indices = sorted(list(camera_params.keys()))
         camera_params = [{'width':camera_params[i].width, 
                           'height':camera_params[i].height, 
                           'fx':camera_params[i].params[0], 
                           'fy':camera_params[i].params[0 if camera_params[i].model=='SIMPLE_RADIAL' else 1], 
                           'cx':camera_params[i].params[1 if camera_params[i].model=='SIMPLE_RADIAL' else 2], 
-                          'cy':camera_params[i].params[2 if camera_params[i].model=='SIMPLE_RADIAL' else 3]} for i in range(1,1+len(camera_params))] 
+                          'cy':camera_params[i].params[2 if camera_params[i].model=='SIMPLE_RADIAL' else 3]} for i in camera_params_indices] 
         if len(camera_params)!=len(camera_locations):
             camera_params = [camera_params[0]]*len(camera_locations)
             
