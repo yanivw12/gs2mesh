@@ -9,6 +9,7 @@ import cv2
 from PIL import Image
 import matplotlib.pyplot as plt
 from sam2.sam2_video_predictor import SAM2VideoPredictor
+from sam2.build_sam import build_sam2_video_predictor
 
 from gs2mesh_utils.transformation_utils import project_depth_image
 
@@ -37,19 +38,28 @@ def create_temp_jpg_folder(renderer):
         image.convert('RGB').save(new_filename)
     return dst_dir
         
-def init_predictor(base_dir, renderer, device='cuda'):
+def init_predictor(base_dir, renderer, use_local=False, device='cuda'):
     """
     Initialize the SAM predictor.
 
     Parameters:
     base_dir (str): Base directory of the repository.
     renderer (Renderer): Renderer object class.
+    use_local (bool): Flag to determine whether to use local weights or huggingface weights.
     device (str): Device to run the model on.
 
     Returns:
     SamPredictor: Initialized SAM predictor.
     """
-    predictor = SAM2VideoPredictor.from_pretrained("facebook/sam2-hiera-large")
+    predictor = None
+    if use_local:
+        SAM2_dir = os.path.abspath(os.path.join(base_dir, 'third_party', 'segment-anything-2'))
+        checkpoint = os.path.join(SAM2_dir, 'checkpoints', 'sam2_hiera_large.pt')
+        model_cfg = 'sam2_hiera_l.yaml'
+        cfg_path = os.path.join(SAM2_dir, 'sam2_configs')
+        predictor = build_sam2_video_predictor(model_cfg, config_path=cfg_path, ckpt_path=checkpoint, device=device)
+    else:
+        predictor = SAM2VideoPredictor.from_pretrained("facebook/sam2-hiera-large", device=device)
     images_dir = create_temp_jpg_folder(renderer)
     inference_state = predictor.init_state(video_path=images_dir)
     return predictor, inference_state, images_dir

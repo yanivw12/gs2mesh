@@ -14,6 +14,8 @@ We introduce a novel pipeline for multi-view 3D reconstruction from uncontrolled
 
 ## Updates
 
+- **2024/08/22:**
+    - Added option for local SAM2 weights.
 - **2024/08/21:**
     - Small bug fix in renderer initialization.
 - **2024/08/14:** 
@@ -86,6 +88,15 @@ Install SAM2 with the commands:
 cd third_party/segment-anything-2
 pip install -e .
 ```
+
+If you are interested in downloading local weights instead of using the huggingface weights, run the following code (assuming you are in the *third_party/segment-anything-2* directory):
+
+```bash
+cd checkpoints
+wget https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_large.pt
+```
+
+When running the *custom_data.ipynb* notebook, set *use_local=True* in the line that initializes the SAM2 predictor.
 
 ## Datasets
 
