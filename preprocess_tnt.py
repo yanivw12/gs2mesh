@@ -40,8 +40,8 @@ if __name__ == "__main__":
     #  Run COLMAP
     # =============================================================================
 
-    # os.chdir(os.path.join(base_dir,'gs2mesh_utils','third_party','colmap_runner'))
-    # os.system(f"python convert_tnt_to_json.py --tnt_path {os.path.join(base_dir,'data','TNT')}")
+    os.chdir(os.path.join(base_dir,'gs2mesh_utils','third_party','colmap_runner'))
+    os.system(f"python convert_tnt_to_json.py --tnt_path {os.path.join(base_dir,'data','TNT')}")
 
     # =============================================================================
     #  Convert model to txt

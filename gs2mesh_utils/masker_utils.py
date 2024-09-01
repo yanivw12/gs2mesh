@@ -3,6 +3,8 @@
 # =============================================================================
 
 import numpy as np
+import torch
+from torchvision.ops import box_convert
 import os
 from tqdm import tqdm
 import cv2
@@ -10,6 +12,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 from sam2.sam2_video_predictor import SAM2VideoPredictor
 from sam2.build_sam import build_sam2_video_predictor
+import third_party.GroundingDINO.groundingdino.util.inference as GD
 
 from gs2mesh_utils.transformation_utils import project_depth_image
 
@@ -38,21 +41,21 @@ def create_temp_jpg_folder(renderer):
         image.convert('RGB').save(new_filename)
     return dst_dir
         
-def init_predictor(base_dir, renderer, use_local=False, device='cuda'):
+def init_predictor(base_dir, renderer, args, device='cuda'):
     """
     Initialize the SAM predictor.
 
     Parameters:
     base_dir (str): Base directory of the repository.
     renderer (Renderer): Renderer object class.
-    use_local (bool): Flag to determine whether to use local weights or huggingface weights.
+    args (ArgParser): Program arguments.
     device (str): Device to run the model on.
 
     Returns:
     SamPredictor: Initialized SAM predictor.
     """
     predictor = None
-    if use_local:
+    if args.masker_SAM2_local:
         SAM2_dir = os.path.abspath(os.path.join(base_dir, 'third_party', 'segment-anything-2'))
         checkpoint = os.path.join(SAM2_dir, 'checkpoints', 'sam2_hiera_large.pt')
         model_cfg = 'sam2_hiera_l.yaml'
@@ -62,7 +65,10 @@ def init_predictor(base_dir, renderer, use_local=False, device='cuda'):
         predictor = SAM2VideoPredictor.from_pretrained("facebook/sam2-hiera-large", device=device)
     images_dir = create_temp_jpg_folder(renderer)
     inference_state = predictor.init_state(video_path=images_dir)
-    return predictor, inference_state, images_dir
+
+    GD_dir = os.path.join(base_dir, 'third_party', 'GroundingDINO')
+    GD_model = GD.load_model(os.path.join(GD_dir, 'groundingdino', 'config', 'GroundingDINO_SwinT_OGC.py'), os.path.join(GD_dir, 'weights', 'groundingdino_swint_ogc.pth'))
+    return GD_model, predictor, inference_state, images_dir
 
 def farthest_point_sampling(points, num_seeds):
     """
@@ -87,22 +93,27 @@ def farthest_point_sampling(points, num_seeds):
     return farthest_pts
 
 # =============================================================================
-#  Class for SAM Masker
+#  Class for SAM2 + Grounding_DINO
 # =============================================================================
 
 class Masker:
-    def __init__(self, predictor, inference_state, images_dir, renderer, stereo, image_number=0):
+    def __init__(self, GD_model, predictor, inference_state, images_dir, renderer, stereo, args, image_number=0, visualize=False):
         """
         Initialize the Masker class.
 
         Parameters:
+        GD_model (GroundingDINO): GroundingDINO model class.
         predictor (SAM2VideoPredictor): SAM2 predictor.
         predictor (dict): SAM2 inference state.
-        images_dir (str): directory of jpg images for SAM2.
+        images_dir (str): Directory of jpg images for SAM2.
         renderer (Renderer): Renderer class object.
         stereo (Stereo): Stereo class object.
+        args (ArgParser): Program arguments.
         image_number (int): Base image number from which to start masking.
+        visualize (bool): Flag for visualizing the image and the mask (for interactive point selection)
         """
+
+        self.GD_model = GD_model
 
         self.predictor = predictor
         self.inference_state = inference_state
@@ -117,36 +128,63 @@ class Masker:
             if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG"]
         ]
         image_filenames.sort(key=lambda p: int(os.path.splitext(p)[0]))
-        
-        self.image = np.array(Image.open(os.path.join(self.renderer.output_dir_root, 'images_jpg', image_filenames[self.index])))
-        
+
+        image_filename = os.path.join(self.renderer.output_dir_root, 'images_jpg', image_filenames[self.index])
+        self.image = np.array(Image.open(image_filename))
+
         self.points = []
-        self.bboxes = None
+        self.bboxes = self.get_GroundingDINO_bbox(image_filename, args.masker_prompt) if args.masker_automask else None
         self.mask = None
 
-        plt.close('all')
+        if visualize:
+            plt.close('all')
+            
+            self.fig, self.ax = plt.subplots(figsize=(9, 6))
+            plt.subplots_adjust(bottom=0.2)
+            
+            self.ax.set_xticks([])
+            self.ax.set_yticks([])
+    
+            self.cid = self.fig.canvas.mpl_connect('button_press_event', self.on_click)
+            self.cidrelease = self.fig.canvas.mpl_connect('button_release_event', self.on_release)
+    
+            self.dragging = False
+            self.drag_start = None
+            self.drag_threshold = 5
         
-        self.fig, self.ax = plt.subplots(figsize=(9, 6))
-        plt.subplots_adjust(bottom=0.2)
-        
-        self.ax.set_xticks([])
-        self.ax.set_yticks([])
-        
-        self.cid = self.fig.canvas.mpl_connect('button_press_event', self.on_click)
-        self.cidrelease = self.fig.canvas.mpl_connect('button_release_event', self.on_release)
+        self.redraw(visualize=visualize)
 
-        self.dragging = False
-        self.drag_start = None
-        self.drag_threshold = 5
+    def get_GroundingDINO_bbox(self, image_path, prompt):
+        """
+        use GroundingDINO model to get a bounding box from an image and a prompt.
+
+        Parameters:
+        image_path (str): the path to the image file.
+        prompt (str): the prompt of the target object
+
+        Returns:
+        np.ndarray: an array containing the bounding box
+        """
+        IMAGE_PATH = image_path
+        TEXT_PROMPT = prompt
+        BOX_TRESHOLD = 0.35
+        TEXT_TRESHOLD = 0.25
         
-        self.display_image()
+        image_source, image = GD.load_image(IMAGE_PATH)
         
-    # def __del__(self):
-    #     """
-    #     Destructor to ensure the figure is closed when the object is destroyed.
-    #     """
-    #     plt.close('all')
+        boxes, logits, phrases = GD.predict(
+            model=self.GD_model,
+            image=image,
+            caption=TEXT_PROMPT,
+            box_threshold=BOX_TRESHOLD,
+            text_threshold=TEXT_TRESHOLD
+        )
         
+        h, w, _ = image_source.shape
+        boxes = boxes * torch.Tensor([w, h, w, h])
+
+        return box_convert(boxes=boxes, in_fmt="cxcywh", out_fmt="xyxy").numpy()[0]
+
     def display_image(self):
         """
         Display the current image being masked along with points, mask, and bounding box.
@@ -251,7 +289,7 @@ class Masker:
         nearest_point_index = min(range(len(self.points)), key=lambda i: (self.points[i][0][0] - x) ** 2 + (self.points[i][0][1] - y) ** 2)
         self.points.pop(nearest_point_index)
 
-    def redraw(self):
+    def redraw(self, visualize=True):
         """
         Redraw the image with the updated points, mask, and bounding box.
 
@@ -260,12 +298,17 @@ class Masker:
         """
         if len(self.points) > 0 or self.bboxes is not None:
             self.predictor.reset_state(self.inference_state)
+            points = np.array([point[0] for point in self.points]) if len(self.points) > 0 else None
+            point_labels = np.array([point[1] for point in self.points]) if len(self.points) > 0 else None
+            bbox = self.bboxes
+
             _, out_obj_ids, out_mask_logits = self.predictor.add_new_points_or_box(
                 inference_state=self.inference_state,
                 frame_idx=self.index,
                 obj_id=1,
-                points=np.array([point[0] for point in self.points]) if len(self.points) > 0 else None,
-                labels=np.array([point[1] for point in self.points]) if len(self.points) > 0 else None,
+                points=points,
+                labels=point_labels,
+                box=bbox
             )
             self.mask = (out_mask_logits[0] > 0.0).cpu().numpy().squeeze(0)
             output_dir = self.renderer.render_folder_name(self.index)
@@ -273,7 +316,8 @@ class Masker:
             plt.imsave(os.path.join(output_dir, 'left_mask.png'), self.mask)
         else:
             self.mask = np.zeros_like(self.image)[:, :, 0].astype(bool)
-        self.display_image()
+        if visualize:
+            self.display_image()
 
     def show_mask(self, mask, ax):
         """

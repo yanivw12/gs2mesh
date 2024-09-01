@@ -11,6 +11,7 @@ from argparse import ArgumentParser, Namespace
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import copy
+from scipy.optimize import least_squares
 
 from gs2mesh_utils.colmap_utils import poses_from_file
 from gs2mesh_utils.transformation_utils import rotm2eul, eul2rotm, intrinsic_from_camera_params, RT_from_rot_pos, convert_R_T_to_GS, calculate_right_camera_pose
@@ -102,7 +103,7 @@ def sort_camera_coordinates(coordinates):
 # =============================================================================
 
 class Renderer:
-    def __init__(self, base_dir, colmap_dir, output_dir_root, render_name, dataset='custom', splatting='custom', experiment_name=None, splatting_iteration=30000, white_background=False, baseline_absolute=None, baseline_percentage=7, folder_name=None, save_json=True, sort_cameras=False, device='cuda'):
+    def __init__(self, base_dir, colmap_dir, output_dir_root, args, dataset='custom', splatting='custom', experiment_name=None, device='cuda'):
         """
         Initialize the Renderer class.
 
@@ -110,26 +111,22 @@ class Renderer:
         base_dir (str): Base directory of the repository.
         colmap_dir (str): Directory containing the COLMAP sparse model.
         output_dir_root (str): Root directory of the output.
-        render_name (str): Name of the specific scan name.
+        args (ArgParser): Program arguments.
         dataset (str): Name of the dataset.
         splatting (str): name of the splatting output folder.
         experiment_name (str): Name of the experiment. Use if you want to override the default name.
-        splatting_iteration (int): The Gaussian Splatting iteration from which the point cloud will be taken. Default 30000.
-        white_background (bool): Flag for Gaussian Splatting to use/not use an artificial white background.
-        baseline_absolute (float): The horizontal stereo baseline as an absolute value. defualt is None, which forces usage of baseline_percentage.
-        baseline_percentage (float): The horizontal stereo baseline as percentage of the scene radius. defualt is using 7% of the scene radius.
-        folder_name (str): Name of the folder for saving the renders.
-        save_json (bool): Flag to save camera data as JSON.
         device (str): Device to run the model on (e.g., 'cuda' or 'cpu').
         """
-        self.render_name = render_name
-        self.white_background = white_background
+
+        self.args = args
+        self.render_name = args.colmap_name
+        self.white_background = args.GS_white_background
         self.base_dir = base_dir
         self.colmap_dir = colmap_dir
         self.output_dir_root = output_dir_root
         self.device = device
-        self.splatting_iteration = splatting_iteration
-        self.splatting_dir = os.path.join(base_dir, 'splatting_output', splatting, render_name)
+        self.splatting_iteration = args.GS_iterations
+        self.splatting_dir = os.path.join(base_dir, 'splatting_output', splatting, self.render_name)
         splatting_ply_file_path = os.path.join(self.splatting_dir, 'point_cloud', f"iteration_{self.splatting_iteration}", 'point_cloud.ply')
         
         self.poses = poses_from_file(os.path.join(self.colmap_dir,'sparse','0','images.txt'))
@@ -154,13 +151,23 @@ class Renderer:
         if len(camera_params)!=len(camera_locations):
             camera_params = [camera_params[0]]*len(camera_locations)
             
-        if baseline_absolute is not None:
-            self.baseline = baseline_absolute
+        if args.renderer_baseline_absolute is not None:
+            self.baseline = args.renderer_baseline_absolute
         else:
+            radius = None
             ts = np.array(camera_locations)
-            self.baseline = np.median(np.linalg.norm(ts - ts.mean(axis=0),axis=1)) * (baseline_percentage/100)
+            if args.renderer_scene_360:
+                radius = np.median(np.linalg.norm(ts - ts.mean(axis=0),axis=1))
+            else:
+                x_m, y_m, z_m = np.mean(ts, axis=0)
+                initial_guess = np.array([x_m, y_m, z_m, 1.0])
+                x, y, z = ts[:, 0], ts[:, 1], ts[:, 2]
+                residuals = lambda params: np.sqrt((x - params[0]) ** 2 + (y - params[1]) ** 2 + (z - params[2]) ** 2) - params[3]
+                result = least_squares(residuals, initial_guess)
+                radius = result.x[3]
+            self.baseline = radius * (args.renderer_baseline_percentage/100)
 
-        if sort_cameras:
+        if args.renderer_sort_cameras:
             self.sorted_camera_indices = sort_camera_coordinates(np.array(camera_locations))
             self.poses = self.poses[torch.tensor(self.sorted_camera_indices)]
         else:
@@ -201,7 +208,7 @@ class Renderer:
         
         self.left_cameras = [camera['left'] for camera in self.cameras]
 
-        if save_json:
+        if args.renderer_save_json:
             self.save_camera_data()
         
         self.GS_ply_points, _ = read_ply(splatting_ply_file_path)
@@ -214,32 +221,64 @@ class Renderer:
         int: Number of cameras.
         """
         return len(self.cameras)
-    
-    def visualize_poses(self, depth_scale=1, subsample=100):
+        
+    def visualize_poses(self, depth_scale=10, subsample=100):
         """
-        Visualize camera poses using Plotly.
-
+        Visualize camera poses and FOV using Plotly.
+        
         Parameters:
-        depth_scale (float): Adjust according to scale of the scene, in order to see the cameras.
-        subsample (int): Subsampling factor to reduce the number of visualized points. Use a larger value if your mesh is large.
-
+        depth_scale (float): Adjust according to the scale of the scene to see the cameras.
+        subsample (int): Subsampling factor to reduce the number of visualized points.
+        
         Returns:
         None
         """
         vis_depth = 0.02 * depth_scale
         xyzs = self.GS_ply_points[::subsample]
-        x, y, z = *xyzs.T,
+        x, y, z = xyzs.T
         
         traces_poses = visualize.plotly_visualize_pose(self.poses, vis_depth=vis_depth, xyz_length=0.02, center_size=0.01, xyz_width=0.005, mesh_opacity=0.05)
-        trace_points = go.Scatter3d(x=x, y=y, z=z, mode="markers", marker=dict(size=1, opacity=1))
-        traces_all = traces_poses+[trace_points]
-        layout = go.Layout(scene=dict(xaxis=dict(showspikes=False, backgroundcolor="rgba(0,0,0,0)", gridcolor="rgba(0,0,0,0.1)"),
-                                      yaxis=dict(showspikes=False, backgroundcolor="rgba(0,0,0,0)", gridcolor="rgba(0,0,0,0.1)"),
-                                      zaxis=dict(showspikes=False, backgroundcolor="rgba(0,0,0,0)", gridcolor="rgba(0,0,0,0.1)"),
-                                      xaxis_title="X", yaxis_title="Y", zaxis_title="Z", dragmode="orbit",
-                                      aspectratio=dict(x=1, y=1, z=1), aspectmode="data"), height=800)
-        fig = go.Figure(data=traces_all, layout=layout)
+        inside_points = []
+        outside_points = []
+        camera_locations = np.array([camera['pos'] for camera in self.left_cameras])
+        camera_poses = np.array([camera['extrinsic'] for camera in self.left_cameras])
+        intrinsics = np.array([camera['intrinsic'] for camera in self.left_cameras])
+    
+        for point in xyzs:
+            inside_any_FOV = False
+            for i in range(len(camera_locations)):
+                camera_pose_inv = np.linalg.inv(camera_poses[i]) 
+                K = intrinsics[i]
+                min_depth = self.args.TSDF_min_depth_baselines * self.baseline
+                max_depth = self.args.TSDF_max_depth_baselines * self.baseline
+                point_cam = camera_pose_inv @ np.append(point, 1)
+                if min_depth <= point_cam[2] <= max_depth:
+                    point_normalized = K @ (point_cam[:3] / point_cam[2])
+                    if 0 <= point_normalized[0] <= K[0, 2] * 2 and 0 <= point_normalized[1] <= K[1, 2] * 2:
+                        inside_any_FOV = True
+                        break
+            if inside_any_FOV:
+                inside_points.append(point.tolist())
+            else:
+                outside_points.append(point.tolist())
+        inside_points = np.array(inside_points) if inside_points else np.empty((0, 3))
+        outside_points = np.array(outside_points) if outside_points else np.empty((0, 3))
+        trace_inside_points = go.Scatter3d(x=inside_points[:, 0], y=inside_points[:, 1], z=inside_points[:, 2], mode='markers', marker=dict(size=1, color='green', opacity=0.8), name="Inside FOV")
+        trace_outside_points = go.Scatter3d(x=outside_points[:, 0], y=outside_points[:, 1], z=outside_points[:, 2], mode='markers', marker=dict(size=1, color='orange', opacity=0.5), name="Outside FOV")
+        traces_all = traces_poses + [trace_inside_points, trace_outside_points]
         
+        layout = go.Layout(
+            scene=dict(
+                xaxis=dict(showspikes=False, backgroundcolor="rgba(0,0,0,0)", gridcolor="rgba(0,0,0,0.1)"),
+                yaxis=dict(showspikes=False, backgroundcolor="rgba(0,0,0,0)", gridcolor="rgba(0,0,0,0.1)"),
+                zaxis=dict(showspikes=False, backgroundcolor="rgba(0,0,0,0)", gridcolor="rgba(0,0,0,0.1)"),
+                xaxis_title="X", yaxis_title="Y", zaxis_title="Z", dragmode="orbit",
+                aspectratio=dict(x=1, y=1, z=1), aspectmode="data"
+            ),
+            height=800
+        )
+        
+        fig = go.Figure(data=traces_all, layout=layout)
         fig.show()
 
     def render_folder_name(self, render_number):

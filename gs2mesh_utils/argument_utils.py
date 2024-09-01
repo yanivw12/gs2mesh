@@ -31,6 +31,7 @@ class ArgParser:
             'dataset_name':{'custom':'custom', 'DTU':'DTU', 'TNT':'TNT', 'MobileBrick':'MobileBrick', 'MipNerf360':'MipNerf360'},
             'downsample':{'custom':1, 'DTU':1, 'TNT':1, 'MobileBrick':1, 'MipNerf360':3},
             'renderer_baseline_percentage':{'custom':7.0, 'DTU':7.0, 'TNT':7.0, 'MobileBrick':14.0, 'MipNerf360':7.0},
+            'stereo_warm':{'custom':False, 'DTU':True, 'TNT':True, 'MobileBrick':True, 'MipNerf360':False},
             'TSDF_scale':{'custom':1.0, 'DTU':1.0, 'TNT':1.0, 'MobileBrick':0.1, 'MipNerf360':1.0},
             'TSDF_use_mask':{'custom':False, 'DTU':True, 'TNT':False, 'MobileBrick':True, 'MipNerf360':False},
             'TSDF_min_depth_baselines':{'custom':4, 'DTU':4, 'TNT':2, 'MobileBrick':4, 'MipNerf360':4},
@@ -56,6 +57,8 @@ class ArgParser:
         # Renderer params
         self.parser.add_argument('--renderer_baseline_absolute', type=float, default=None, help='Absolute value of the renderer baseline (None uses 7 percent of scene radius)')
         self.parser.add_argument('--renderer_baseline_percentage', type=float, default=self.default_value('renderer_baseline_percentage'), help='Percentage value of the renderer baseline')
+        self.parser.add_argument('--renderer_scene_360', action='store_true', default=True, help='Scene is a 360 scene')
+        self.parser.add_argument('--no-renderer_scene_360', action='store_false', dest='renderer_scene_360', help="Scene is not a 360 scene")
         self.parser.add_argument('--renderer_folder_name', type=str, default=None, help='Name of the renderer folder (None uses the colmap name)')
         self.parser.add_argument('--renderer_save_json', action='store_true', default=True, help='Save renderer data to JSON (default True - disable with no-renderer_save_json)')
         self.parser.add_argument('--no-renderer_save_json', action='store_false', dest='renderer_save_json', help="Disable renderer_save_json")
@@ -64,8 +67,8 @@ class ArgParser:
         # Stereo params
         self.parser.add_argument('--stereo_model', type=str, default='DLNR_Middlebury', help='Stereo model to use')
         self.parser.add_argument('--stereo_occlusion_threshold', type=int, default=3, help='Occlusion threshold for stereo model (Lower value masks out more areas)')
-        self.parser.add_argument('--stereo_warm', action='store_true', default=True, help='Use the previous disparity as initial disparity for current view (False if views are not sorted) (default True - disable with no-stereo_warm)')
-        self.parser.add_argument('--no-stereo_warm', action='store_false', dest='stereo_warm', help="Disable stereo_warm")
+        self.parser.add_argument('--stereo_warm', action='store_true', default=self.default_value('stereo_warm'), help='Use the previous disparity as initial disparity for current view (False if views are not sorted) (disable with no-stereo_warm)')
+        self.parser.add_argument('--stereo_shading_eps', type=float, default=1e-4, help='Small value used for visualization of the depth gradient. Adjusted according to the scale of the scene.')
 
         # TSDF params
         self.parser.add_argument('--TSDF_scale', type=float, default=self.default_value('TSDF_scale'), help='Fix depth scale')
@@ -99,13 +102,20 @@ class ArgParser:
         if self.dataset == 'custom':
             self.parser.add_argument('--video_extension', type=str, default='mp4', help='Video file extension.')
             self.parser.add_argument('--video_interval', type=int, default=10, help='Extract every n-th frame - aim for 3fps.')
+            # Masker params
+            self.parser.add_argument('--masker_automask', action='store_true', help='Use GroundingDINO for automatic object detection for masking with SAM2')
+            self.parser.add_argument('--masker_prompt', type=str, default='main_object', help='Prompt for GroundingDINO')
+            self.parser.add_argument('--masker_SAM2_local', action='store_true', help='Use local SAM2 weights')
         if self.dataset == 'DTU':
             self.parser.add_argument('--scans', type=int, nargs='+', default=[24, 37, 40, 55, 63, 65, 69, 83, 97, 105, 106, 110, 114, 118, 122], help='Scan numbers')
+            self.parser.add_argument('--no-stereo_warm', action='store_false', dest='stereo_warm', help="Disable stereo_warm")
             self.parser.add_argument('--no-TSDF_use_mask', action='store_false', dest='TSDF_use_mask', help="Disable TSDF_use_mask")
         if self.dataset == 'TNT':
             self.parser.add_argument('--scans', type=str, nargs='+', default=['Barn', 'Caterpillar', 'Ignatius', 'Truck'], help='Scan names')
+            self.parser.add_argument('--no-stereo_warm', action='store_false', dest='stereo_warm', help="Disable stereo_warm")
         if self.dataset == 'MobileBrick':
             self.parser.add_argument('--scans', type=str, nargs='+', default=['aston', 'audi', 'beetles', 'big_ben', 'boat', 'bridge', 'cabin', 'camera', 'castle', 'colosseum', 'convertible', 'ferrari', 'jeep', 'london_bus', 'motorcycle', 'porsche', 'satellite', 'space_shuttle'], help='Scan names')
+            self.parser.add_argument('--no-stereo_warm', action='store_false', dest='stereo_warm', help="Disable stereo_warm")
             self.parser.add_argument('--no-TSDF_use_mask', action='store_false', dest='TSDF_use_mask', help="Disable TSDF_use_mask")
         if self.dataset == 'MipNerf360':
             self.parser.add_argument('--scans', type=str, nargs='+', default=['counter', 'garden'], help='Scan names')

@@ -158,6 +158,8 @@ cython_debug/
 /evaluation/*/eval_output/*
 /splatting_output/*
 /output/*
+/third_party/segment-anything-2/checkpoints/sam2_hiera_large.pt
+/third_party/GroundingDINO/weights/groundingdino_swint_ogc.pth
 /third_party/DLNR/pretrained/*
 iframe_figures/*
 data/*

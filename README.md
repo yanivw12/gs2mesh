@@ -14,6 +14,11 @@ We introduce a novel pipeline for multi-view 3D reconstruction from uncontrolled
 
 ## Updates
 
+- **2024/09/01:**
+    - Added support for automatic masking using GroundingDINO! Now you can remove background automatically or reconstruct a specific object in the scene using a text prompt as input to the script. See "Custom Data" section for more details.
+    - Improved visualizations in *custom_data.ipynb* - You can now see which areas of the scene will be taken into account in the TSDF process when visualizing the renderer poses.
+    - Cleaned function calls.
+    - Improved handling for non-360 scenes , which is initiated by a parameter *no-renderer_scene_360* for scenes which aren't 360 (for example, DTU scenes). If your scene is taken from a partial sphere, set this parameter to get a better estimation of the scene radius and the required horizontal baseline.
 - **2024/08/22:**
     - Added option for local SAM2 weights.
 - **2024/08/21:**
@@ -28,7 +33,7 @@ We introduce a novel pipeline for multi-view 3D reconstruction from uncontrolled
 ## Future Work
 
 - [ ] Add support for additional state-of-the-art GS models, and the gsplat framework
-- [ ] Add support for automatic background removal with SAM2 (without the need for an interactive prompt)
+- [x] Add support for automatic background removal with SAM2 (without the need for an interactive prompt)
 - [x] Add support for SAM2 in the interactive notebook
 - [ ] Release Google Colab demo
 - [x] Release notebook for interactive reconstruction of custom data
@@ -57,9 +62,8 @@ cd gs2mesh
 pip install -r requirements.txt
 ```
 
-**DLNR Stereo**
+**Download DLNR Stereo weights**
 
-For the stereo model, download the pre-trained Middlebury and Sceneflow models from [DLNR](https://github.com/David-Zhao-1997/High-frequency-Stereo-Matching-Network), and place them in *gs2mesh/third_party/DLNR/pretrained/*:
 ```bash
 # create the folder for the pretrained models
 cd third_party/DLNR
@@ -71,32 +75,28 @@ wget https://github.com/David-Zhao-1997/High-frequency-Stereo-Matching-Network/r
 wget https://github.com/David-Zhao-1997/High-frequency-Stereo-Matching-Network/releases/download/v1.0.0/DLNR_SceneFlow.pth
 ```
 
-**SAM2**
+**Download SAM2 weights**
 
-Notice that in *third_party/segment-anything-2/setup.py*, the line 
-```bash
-python_requires=">=3.10.0",
-```
-has been changed to
-```bash
-python_requires=">=3.8.0",
-```
-in order to adapt to our python version.
-
-Install SAM2 with the commands:
-```bash
-cd third_party/segment-anything-2
-pip install -e .
-```
-
-If you are interested in downloading local weights instead of using the huggingface weights, run the following code (assuming you are in the *third_party/segment-anything-2* directory):
+SAM2 local weights is optional, as it automatically downloads weights using Huggingface. If you are still interested in local weights, download them and set the parameter *masker_SAM2_local* to True if using local weights.
 
 ```bash
-cd checkpoints
+# navigate to the folder for the pretrained model
+cd third_party/segment-anything-2/checkpoints
+# download pretrained model
 wget https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_large.pt
 ```
 
-When running the *custom_data.ipynb* notebook, set *use_local=True* in the line that initializes the SAM2 predictor.
+
+**Download GroundingDINO weights**
+
+```bash
+# create the folder for the pretrained model
+cd third_party/GroundingDINO
+mkdir weights
+cd weights
+# download pretrained model
+wget https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha/groundingdino_swint_ogc.pth
+```
 
 ## Datasets
 
@@ -285,7 +285,7 @@ custom
 |	|	|	|---points3D.txt
 ```
 
-You can either run an interactive notebook *custom_data.ipynb*, which also has visualizations and allows masking of objects interactively, or run a script *run_single.py*:
+You can either run an interactive notebook *custom_data.ipynb*, which also has visualizations and allows masking of objects interactively, or run a script *run_single.py* and use the automatic masking parameters:
 ```bash
 # if your input is a video
 python run_single.py --colmap_name <data_name> --video_extension <video_extension without '.'>
@@ -293,10 +293,13 @@ python run_single.py --colmap_name <data_name> --video_extension <video_extensio
 python run_single.py --colmap_name <data_name> --skip_video_extraction
 # if your input is a COLMAP dataset
 python run_single.py --colmap_name <data_name> --skip_video_extraction --skip_colmap
+
+# For automatic masking add params:
+--masker_automask --masker_prompt <object_name>
+# (default object name is main_object which works on most object-centered scenes)
 ```
 Results are saved in *gs2mesh/output/custom_\<params>*.
 
-You can also choose to run the python script *run_single.py*, and then just mask using the relevant parts of the *custom_data.ipynb* notebook
 <details>
 <summary>Parameters</summary>
 
@@ -312,14 +315,20 @@ You can also choose to run the python script *run_single.py*, and then just mask
 | `renderer_max_images`            | Maximum number of images to render                                              | 1000         | 1000         | 1000       | 1000         | 1000         |
 | `renderer_baseline_absolute`     | Absolute value of the renderer baseline (None uses 7 percent of scene radius)   | None         | None         | None       | None         | None         |
 | `renderer_baseline_percentage`   | Percentage value of the renderer baseline                                       | 7            | 7            | 7          | 14            | 7            |
+| `renderer_scene_360`   | Scene is a 360 scene                                       | True            | True            | True          | True| True            |
+| `no-renderer_scene_360`   | Scene is not a 360 scene                                      |False            | False            | False          | False            | False            |
 | `renderer_folder_name`           | Name of the renderer folder (None uses the colmap name)                         | None         | None         | None       | None         | None         |
 | `renderer_save_json`             | Save renderer data to JSON (default True - disable with no-renderer_save_json)  | True         | True         | True       | True         | True         |
 | `no-renderer_save_json`          | Disable renderer_save_json                                                      | False        | False        | False      | False        | False        |
 | `renderer_sort_cameras`          | Sort cameras in the renderer (True if using unordered set of views)             | False        | False        | False      | False        | False        |
 | `stereo_model`                   | Stereo model to use                                                             | DLNR_Middlebury | DLNR_Middlebury | DLNR_Middlebury | DLNR_Middlebury | DLNR_Middlebury |
 | `stereo_occlusion_threshold`     | Occlusion threshold for stereo model (Lower value masks out more areas)         | 3            | 3            | 3          | 3            | 3            |
-| `stereo_warm`                    | Use the previous disparity as initial disparity for current view (default True - disable with no-stereo_warm) | True         | True         | True       | True         | True         |
-| `no-stereo_warm`                 | Disable stereo_warm                                                             | False        | False        | False      | False        | False        |
+| `stereo_warm`                    | Use the previous disparity as initial disparity for current view (disable with no-stereo_warm) | False| True         | True       | True         | False|
+| `no-stereo_warm`                 | Disable stereo_warm                                                             | ----| False        | False      | False        | ----|
+| `stereo_shading_eps`                 | Small value used for visualization of the depth gradient. Adjusted according to the scale of the scene.                                                             | 1e-4| 1e-4| 1e-4| 1e-4|1e-4|
+| `masker_automask`                    | Use GroundingDINO for automatic object detection for masking with SAM2 | False| ----| ----| ----| ----|
+| `masker_prompt`                    | Prompt for GroundingDINO | main_object| ----| ----| ----| ----|
+| `masker_SAM2_local`                    | Use local SAM2 weights | False| ----| ----| ----| ----|
 | `TSDF_scale`                     | Fix depth scale                                                                 | 1.0          | 1.0          | 1.0        | 0.1          | 1.0          |
 | `TSDF_dilate`                    | Take every n-th image (1 to take all images)                                    | 1            | 1            | 1          | 1            | 1            |
 | `TSDF_valid`                     | Choose valid images as a list of indices (None to ignore)                       | None         | None         | None       | None         | None         |
@@ -357,10 +366,10 @@ You can also choose to run the python script *run_single.py*, and then just mask
 Below are some common issues that have risen by users. Please note that we are constantly improving the code  and adding new features according to user feedback.
 
 - **TSDF integration gets killed/segfault.** This is a bug with Open3D ScalableTSDFVolume. It seems to happen in older versions of Ubuntu such as 18.04, and in newer versions of Python (from our experiments, it happened on Python 3.9 and 3.10, and worked on Python 3.7 and 3.8). To avoid this bug, we recommend using Ubuntu 20.04 with Python 3.8 and Open3D 0.17.0.
-- **Mesh not visible.** The main culprit is usually TSDF_min/max_depth_baselines. It's a parameter that truncates the depth maps before TSDF fusion, expressed as a multiple of the horizontal baseline. The default for a custom 360 scene with 7% baseline is between 4 and 20 baselines. If the object is not visible, it usually means that your baseline is too small. If your scene is not a 360 scene (for example, the DTU dataset), use a larger baseline. To avoid dealing with the min/max depth baselines, you can segment the object using SAM2 in the interactive notebook *custom_data.py*, and set TSDF_max_depth_baselines to a high value that won't affect truncation.
+- **Mesh not visible.** The main culprit is usually TSDF_min/max_depth_baselines. It's a parameter that truncates the depth maps before TSDF fusion, expressed as a multiple of the horizontal baseline. The default for a custom 360 scene with 7% baseline is between 4 and 20 baselines. If the object is not visible, it usually means that your baseline is too small. If your scene is not a 360 scene (for example, the DTU dataset), use a larger baseline. To avoid dealing with the min/max depth baselines, you can segment the object using SAM2 in the interactive notebook *custom_data.py* or using the parameters *--masker_automask* and optionally *--masker_prompt \<object\>* as input to the script *run_single.py*, and set TSDF_max_depth_baselines to a high value that won't affect truncation.
 - **Poor mesh quality.** There are many factors that contribute to the quality of the mesh:
 	- The video should cover the reconstructed object completely. We recommend the following practices for a good video:
-		-  filming in landscape. 
+		-  Filming in landscape. 
 		- If the object is larger, do 2 cycles around the object from 2 different heights and angles, while keeping the object centered and close to the camera. It's ok if the object is not fully in the frame at all times. 
 		- When extracting the video, make sure you maintain around 3 FPS. Lower frame rates can cause COLMAP/GS to fail or produce low quality reconstructions. 
 		- We recommend a resolution of 1920x1080, since larger resolutions can take much longer to process, and lower resolutions reduce the resulting reconstruction's quality.
@@ -369,7 +378,7 @@ Below are some common issues that have risen by users. Please note that we are c
 	- With custom datasets which come pre-computed poses (other than the ones officially supported), the TSDF_scale parameter might need to be adjusted (usually changed from 1 to 0.1), otherwise the resolution of the resulting mesh will be very low due to inconsistency with the scale in which the TSDF algorithm expects the data.
 - **Code runs slow.** There are several factors that can slow down the code:
 	- Image size - Images larger than 1920x1080 take much longer to process in the stereo model and TSDF. set the downsample argument to reduce the size of the image at the beginning of the process.
-	- Depth truncation - If the depth truncation for TSDF is too loose, the TSDF will struggle to integrate the background and take much longer. Make sure that you are either truncating depth to ignore the background, or using a segmentation mask on the object you want to reconstruct.
+	- Depth truncation - If the depth truncation for TSDF is too loose, the TSDF will struggle to integrate the background and take much longer. Make sure that you are either truncating depth to ignore the background, or using a segmentation mask on the object you want to reconstruct using the automatic masking tool or the interactive masking tool.
 
 ## Acknowledgements
 
@@ -378,7 +387,7 @@ We thank the following works and repositories:
  - [3DGS](https://github.com/graphdeco-inria/gaussian-splatting) for their pioneering work which made all this possible.
  - [DLNR](https://github.com/David-Zhao-1997/High-frequency-Stereo-Matching-Network) for their stereo model.
  - [Open3D](https://github.com/isl-org/Open3D) for the TSDF fusion algorithm.
- - [SAM2](https://github.com/facebookresearch/segment-anything-2) for the masking model.
+ - [SAM2](https://github.com/facebookresearch/segment-anything-2) and [GroundingDINO](https://github.com/IDEA-Research/GroundingDINO/tree/main) for the masking and object detection models.
  - [2DGS](https://github.com/hbb1/2d-gaussian-splatting/tree/main) and [GOF](https://github.com/autonomousvision/gaussian-opacity-fields/tree/main) for their preprocessing code for TNT and the preprocessed DTU dataset and evaluation code.
  - [Tanks and Temples](https://github.com/isl-org/TanksAndTemples) and [MobileBrick](https://github.com/ActiveVisionLab/MobileBrick) for their evaluation codes.
 

@@ -23,23 +23,24 @@ from core.utils.utils import InputPadder as DLNR_InputPadder
 # =============================================================================
 
 class Stereo:
-    def __init__(self, base_dir, renderer, model_name='DLNR_Middlebury', device='cuda'):
+    def __init__(self, base_dir, renderer, args, device='cuda'):
         """
         Initialize the Stereo class.
 
         Parameters:
         base_dir (str): Base directory of the repository.
         renderer (Renderer): Renderer class object.
-        model_name (str): Name of the stereo model to use.
+        args (ArgParser): Program arguments.
         device (str): Device to run the model on.
         """
         self.base_dir = base_dir
         self.renderer = renderer
-        self.model_name = model_name
+        self.args = args
+        self.model_name = self.args.stereo_model
         self.device = device
         self.disparity_signs = {'DLNR_Middlebury': -1, 'DLNR_SceneFlow': -1}
 
-        if "DLNR" in model_name:
+        if "DLNR" in self.model_name:
             DLNR_args = Namespace(corr_implementation='reg', 
                                   corr_levels=4, 
                                   corr_radius=4, 
@@ -48,7 +49,7 @@ class Stereo:
                                   mixed_precision=True, 
                                   n_downsample=2, 
                                   n_gru_layers=3, 
-                                  restore_ckpt=os.path.join(self.base_dir, 'third_party', 'DLNR', 'pretrained', f'{model_name}.pth'),
+                                  restore_ckpt=os.path.join(self.base_dir, 'third_party', 'DLNR', 'pretrained', f'{self.model_name}.pth'),
                                   shared_backbone=False, 
                                   slow_fast_gru=False, 
                                   valid_iters=10)
@@ -78,15 +79,12 @@ class Stereo:
         img = torch.from_numpy(img).permute(2, 0, 1).float()
         return img[None].to(self.device)
     
-    def run(self, shading_eps=1e-4, occlusion_threshold=3, start=0, warm=True, visualize=False):
+    def run(self, start=0, visualize=False):
         """
         Run the stereo model: render a pair of images and compute the disparity and depth using the stereo model.
 
         Parameters:
-        shading_eps (float): Small value used for visualization of the depth gradient. Adjusted according to the scale of the scene.
-        occlusion_threshold (int): Threshold on the reprojection error for the occlusion mask calculation.
         start (int): The view number from which to start. Default is 0.
-        warm (bool): Flag incdicating whether to use the previous disparity as the initial disparity for the next iteration, for consistency. Use if the views are sequential and close to each other.
         visualize (bool): Flag to visualize the results for debugging.
 
         Returns:
@@ -115,7 +113,7 @@ class Stereo:
                         image1_to_model = torch.flip(image2, dims=[3])
                         image2_to_model = torch.flip(image1, dims=[3])
                     
-                    prev_flow, flow_up = self.model(image1_to_model, image2_to_model, iters=self.model_args.valid_iters, test_mode=True, flow_init=prev_flows[direction] if warm else None)
+                    prev_flow, flow_up = self.model(image1_to_model, image2_to_model, iters=self.model_args.valid_iters, test_mode=True, flow_init=prev_flows[direction] if self.args.stereo_warm else None)
                     if direction == 'RL':
                         prev_flow = torch.flip(prev_flow, dims=[3])
                         flow_up = torch.flip(flow_up, dims=[3])
@@ -131,14 +129,14 @@ class Stereo:
                     np.save(os.path.join(output_directory, f"disparity_{direction}.npy"), disparities[direction])
                     plt.imsave(os.path.join(output_directory, f"disparity_{direction}.png"), disparities[direction], cmap='jet')
                         
-                occlusion_mask = self.get_occlusion_mask(disparities['LR'], disparities['RL'], occlusion_threshold)
+                occlusion_mask = self.get_occlusion_mask(disparities['LR'], disparities['RL'], self.args.stereo_occlusion_threshold)
                 depth = (left_camera['fx'] * baseline) / (disparities['LR'])
                 
                 np.save(os.path.join(output_directory, "occlusion_mask.npy"), occlusion_mask)
                 plt.imsave(os.path.join(output_directory, "occlusion_mask.png"), occlusion_mask)
                 np.save(os.path.join(output_directory, "depth.npy"), depth)
                 cv2.imwrite(os.path.join(output_directory, 'depth.png'), depth)            
-                shading = get_shading(depth, shading_eps)
+                shading = get_shading(depth, self.args.stereo_shading_eps)
                 cv2.imwrite(os.path.join(output_directory, 'shading.png'), shading)
                 
                 if visualize:

@@ -1,5 +1,7 @@
 third_party/gaussian-splatting/submodules/diff-gaussian-rasterization
 third_party/gaussian-splatting/submodules/simple-knn
+third_party/segment-anything-2
+third_party/GroundingDINO
 huggingface_hub
 scipy
 tensorboard
