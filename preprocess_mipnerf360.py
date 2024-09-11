@@ -14,7 +14,7 @@ base_dir = os.path.abspath(os.getcwd())
 
 if __name__ == "__main__":
     
-    scans = ['counter', 'garden', 'bicycle']
+    scans = ['counter', 'garden', 'bicycle', 'bonsai', 'kitchen']
 
     # =============================================================================
     #  Preprocess scans

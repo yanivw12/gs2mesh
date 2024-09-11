@@ -14,8 +14,6 @@ from sam2.sam2_video_predictor import SAM2VideoPredictor
 from sam2.build_sam import build_sam2_video_predictor
 import third_party.GroundingDINO.groundingdino.util.inference as GD
 
-from gs2mesh_utils.transformation_utils import project_depth_image
-
 # =============================================================================
 #  Helper functions
 # =============================================================================
@@ -69,28 +67,6 @@ def init_predictor(base_dir, renderer, args, device='cuda'):
     GD_dir = os.path.join(base_dir, 'third_party', 'GroundingDINO')
     GD_model = GD.load_model(os.path.join(GD_dir, 'groundingdino', 'config', 'GroundingDINO_SwinT_OGC.py'), os.path.join(GD_dir, 'weights', 'groundingdino_swint_ogc.pth'))
     return GD_model, predictor, inference_state, images_dir
-
-def farthest_point_sampling(points, num_seeds):
-    """
-    Given an array of 2D points and an initial random seed, sample additional points using farthest point sampling (FPS).
-
-    Parameters:
-    points (np.ndarray): Array of 2D points.
-    num_seeds (int): Number of points to sample.
-
-    Returns:
-    np.ndarray: Array of sampled points.
-    """
-    farthest_pts = np.zeros((num_seeds, 2), dtype=np.float32)
-    farthest_pts[0] = points[np.random.randint(len(points))]
-    distances = np.full(len(points), np.inf)
-
-    for i in range(1, num_seeds):
-        dist = np.sum((points - farthest_pts[i-1])**2, axis=1)
-        distances = np.minimum(distances, dist)
-        farthest_pts[i] = points[np.argmax(distances)]
-
-    return farthest_pts
 
 # =============================================================================
 #  Class for SAM2 + Grounding_DINO

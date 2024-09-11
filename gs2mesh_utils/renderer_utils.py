@@ -158,6 +158,8 @@ class Renderer:
             ts = np.array(camera_locations)
             if args.renderer_scene_360:
                 radius = np.median(np.linalg.norm(ts - ts.mean(axis=0),axis=1))
+                if args.dataset_name == "DTU": # For backwards compatibility with paper results
+                    radius *= 2
             else:
                 x_m, y_m, z_m = np.mean(ts, axis=0)
                 initial_guess = np.array([x_m, y_m, z_m, 1.0])

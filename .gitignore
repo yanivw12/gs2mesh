@@ -161,6 +161,7 @@ cython_debug/
 /third_party/segment-anything-2/checkpoints/sam2_hiera_large.pt
 /third_party/GroundingDINO/weights/groundingdino_swint_ogc.pth
 /third_party/DLNR/pretrained/*
+/third_party/gaussian_splatting_depth/*
 iframe_figures/*
 data/*
 !data/custom/
