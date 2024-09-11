@@ -14,6 +14,9 @@ We introduce a novel pipeline for multi-view 3D reconstruction from uncontrolled
 
 ## Updates
 
+- **2024/09/11:**
+    - Small fix in renderer.
+    - Removed old functions.
 - **2024/09/01:**
     - Added support for automatic masking using GroundingDINO! Now you can remove background automatically or reconstruct a specific object in the scene using a text prompt as input to the script. See "Custom Data" section for more details.
     - Improved visualizations in *custom_data.ipynb* - You can now see which areas of the scene will be taken into account in the TSDF process when visualizing the renderer poses.
