@@ -397,11 +397,12 @@ We thank the following works and repositories:
 ## Citation
 If you use GS2Mesh or parts of our code in your work, please cite the following paper:
 ```bibtex
-@article{wolf2024surface,
-	title={GS2Mesh: Surface Reconstruction from Gaussian Splatting via Novel Stereo Views},
-	author={Wolf, Yaniv and Bracha, Amit and Kimmel, Ron},
-	journal={arXiv preprint arXiv:2404.01810},
-	year={2024}
+@inproceedings{
+      wolf2024gsmesh,
+      title={{GS}2{M}esh: Surface Reconstruction from {G}aussian Splatting via Novel Stereo Views},
+      author={Yaniv Wolf and Amit Bracha and Ron Kimmel},
+      booktitle={European Conference on Computer Vision (ECCV)},
+      year={2024},
 }
 ```
 ## License
